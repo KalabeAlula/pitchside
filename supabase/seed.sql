@@ -1,0 +1,4 @@
+-- Local fixtures.
+-- The field directory is real data imported by
+-- 20261030120000_real_fields_slots.sql, so there are no invented venues here.
+-- Matches and rosters are created through the app or the RPCs.

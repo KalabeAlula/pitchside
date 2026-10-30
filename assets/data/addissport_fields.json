@@ -1,0 +1,28 @@
+{
+  "fields": [
+    {
+      "name": "22 Golagul",
+      "name_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "sport": "FOOTBALL",
+      "sport_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "location": "Bole, Wereda 04",
+      "location_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "surface": "Artificial",
+      "surface_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "review_count": 10,
+      "review_count_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "rating": 4.9,
+      "rating_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "url": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "url_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "description": "22 Golagul is a modern artificial turf football field located in Bole, Wereda 04. Suitable for training, friendly matches, and local competitions. It includes amenities such as shower, toilet, grandstand, shade.",
+      "description_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "starting_price_etb_per_hour": 500,
+      "starting_price_etb_per_hour_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs",
+      "two_hour_price_etb": 1000,
+      "two_hour_price_etb_citation": "https://addissport.gov.et/en/fields/cmob8si1f004k815c71r2xocs"
+    }
+  ],
+  "count": 73,
+  "count_citation": "https://addissport.gov.et/en/fields"
+}
