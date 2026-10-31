@@ -10,6 +10,8 @@ import 'package:pitchside/models/pitch_review.dart';
 import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/player_standing.dart';
 import 'package:pitchside/models/sub_city.dart';
+import 'package:pitchside/models/upcoming_match.dart';
+import 'package:pitchside/providers/clock_provider.dart';
 import 'package:pitchside/providers/match_feed_provider.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/match_feed_screen.dart';
@@ -51,6 +53,7 @@ class FeedFakeService extends FakePitchsideService {
   FeedFakeService({
     required this.subCities,
     required this.matches,
+    this.upcomingMatches = const [],
     this.standing = const PlayerStanding(
       score: 100,
       suspendedUntil: null,
@@ -61,6 +64,7 @@ class FeedFakeService extends FakePitchsideService {
 
   final List<SubCity> subCities;
   final List<MatchOverview> matches;
+  final List<UpcomingMatch> upcomingMatches;
   final PlayerStanding standing;
   final joinedMatches = <String>[];
 
@@ -69,6 +73,9 @@ class FeedFakeService extends FakePitchsideService {
 
   @override
   Future<List<PastMatch>> getMyPastMatches() async => const [];
+
+  @override
+  Future<List<UpcomingMatch>> getMyUpcomingMatches() async => upcomingMatches;
 
   @override
   Future<List<SubCity>> getSubCities() async => subCities;
@@ -161,7 +168,11 @@ class FeedFakeService extends FakePitchsideService {
   Future<void> shuffleTeams(String matchId) => throw UnimplementedError();
 }
 
-Future<FeedFakeService> pumpFeed(WidgetTester tester) async {
+Future<FeedFakeService> pumpFeed(
+  WidgetTester tester, {
+  List<UpcomingMatch> upcoming = const [],
+  DateTime Function()? now,
+}) async {
   final service = FeedFakeService(
     subCities: const [
       SubCity(id: 'bole', nameEn: 'Bole', nameAm: 'ቦሌ'),
@@ -178,11 +189,17 @@ Future<FeedFakeService> pumpFeed(WidgetTester tester) async {
         pricePerPlayer: 200,
       ),
     ],
+    upcomingMatches: upcoming,
   );
 
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [pitchsideServiceProvider.overrideWithValue(service)],
+      overrides: [
+        pitchsideServiceProvider.overrideWithValue(service),
+        clockProvider.overrideWithValue(
+          now ?? () => DateTime.utc(2026, 10, 31, 9),
+        ),
+      ],
       child: MaterialApp(
         theme: AppTheme.light(),
         darkTheme: AppTheme.dark(),
@@ -242,6 +259,35 @@ void main() {
       expect(find.text('3 spots left!'), findsOneWidget);
       expect(find.text('150 ETB'), findsOneWidget);
       expect(find.text('200 ETB'), findsOneWidget);
+      expect(find.text('NEXT GAME'), findsNothing);
+    });
+
+    testWidgets('pins the next confirmed game above the feed', (tester) async {
+      await pumpFeed(
+        tester,
+        upcoming: [
+          UpcomingMatch(
+            id: 'm1',
+            pitchId: 'pitch-m1',
+            pitchName: 'Sarbet Turf House',
+            subCityName: 'Bole',
+            startsAt: DateTime.utc(2026, 10, 31, 10, 30),
+            endsAt: DateTime.utc(2026, 10, 31, 11, 30),
+            team: 'A',
+          ),
+        ],
+      );
+
+      expect(find.text('NEXT GAME'), findsOneWidget);
+      // Once in the banner, once in the feed card.
+      expect(find.text('Sarbet Turf House'), findsNWidgets(2));
+      expect(find.text('In 1h 30m'), findsOneWidget);
+      expect(find.text('Sat 31 Oct · 13:30–14:30 EAT'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('next-game-banner')));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Match details'), findsOneWidget);
     });
 
     testWidgets('shows the kickoff in Addis time', (tester) async {

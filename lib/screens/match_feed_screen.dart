@@ -4,9 +4,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/match_model.dart';
 import '../providers/auth_provider.dart';
 import '../providers/match_feed_provider.dart';
+import '../providers/standing_provider.dart';
 import '../providers/sub_cities_provider.dart';
 import '../widgets/join_match_sheet.dart';
 import '../widgets/match_card.dart';
+import '../widgets/next_game_banner.dart';
 import 'match_detail_screen.dart';
 import 'my_standing_screen.dart';
 
@@ -93,7 +95,10 @@ class MatchFeedScreen extends ConsumerWidget {
           ),
           IconButton(
             icon: const Icon(Icons.refresh),
-            onPressed: () => ref.invalidate(matchFeedProvider),
+            onPressed: () {
+              ref.invalidate(matchFeedProvider);
+              ref.invalidate(myUpcomingMatchesProvider);
+            },
           ),
           IconButton(
             icon: const Icon(Icons.logout),
@@ -106,6 +111,7 @@ class MatchFeedScreen extends ConsumerWidget {
       body: Column(
         children: [
           const _SubCityFilterBar(),
+          const NextGameBanner(key: ValueKey('next-game-banner')),
           Expanded(
             child: feed.when(
               loading: () => const Center(child: CircularProgressIndicator()),
@@ -114,7 +120,10 @@ class MatchFeedScreen extends ConsumerWidget {
                 onRetry: () => ref.invalidate(matchFeedProvider),
               ),
               data: (matches) => RefreshIndicator(
-                onRefresh: () => ref.refresh(matchFeedProvider.future),
+                onRefresh: () => Future.wait([
+                  ref.refresh(matchFeedProvider.future),
+                  ref.refresh(myUpcomingMatchesProvider.future),
+                ]),
                 child: matches.isEmpty
                     ? ListView(
                         children: const [

@@ -10,6 +10,7 @@ import '../models/organization.dart';
 import '../models/past_match.dart';
 import '../models/player_standing.dart';
 import '../models/sub_city.dart';
+import '../models/upcoming_match.dart';
 
 class PitchsideService {
   final SupabaseClient _client;
@@ -261,6 +262,23 @@ class PitchsideService {
     return (response as List)
         .map(
           (json) => PastMatch.fromJson(Map<String, dynamic>.from(json as Map)),
+        )
+        .toList();
+  }
+
+  /// Scheduled matches the caller is still confirmed in, kickoff first.
+  Future<List<UpcomingMatch>> getMyUpcomingMatches() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final response = await _client
+        .from('my_upcoming_matches')
+        .select()
+        .order('starts_at', ascending: true)
+        .limit(5);
+    return (response as List)
+        .map(
+          (json) =>
+              UpcomingMatch.fromJson(Map<String, dynamic>.from(json as Map)),
         )
         .toList();
   }

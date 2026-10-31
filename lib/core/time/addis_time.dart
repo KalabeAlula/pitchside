@@ -1,3 +1,5 @@
+import 'package:intl/intl.dart';
+
 /// Addis Ababa keeps EAT (UTC+3) all year — no daylight saving — so a fixed
 /// offset is exact and the app never depends on the device timezone.
 const Duration addisOffset = Duration(hours: 3);
@@ -30,3 +32,11 @@ DateTime addisInstant(DateTime date, {int hour = 0, int minute = 0}) {
 
 /// Today's date in Addis, at midnight.
 DateTime addisToday() => addisDate(DateTime.now());
+
+/// 'EEE d MMM · HH:mm–HH:mm EAT' for one match's full time range.
+String dayTimeLabel(DateTime startsAt, DateTime endsAt) {
+  final wall = addisWall(startsAt);
+  final start = DateFormat('HH:mm').format(wall);
+  final end = DateFormat('HH:mm').format(addisWall(endsAt));
+  return '${DateFormat('EEE d MMM').format(wall)} · $start–$end $eatLabel';
+}

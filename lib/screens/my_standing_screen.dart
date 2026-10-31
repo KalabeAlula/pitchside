@@ -1,12 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/time/addis_time.dart';
+import '../core/time/kickoff_status.dart';
 import '../models/past_match.dart';
 import '../models/player_standing.dart';
+import '../models/upcoming_match.dart';
+import '../providers/clock_provider.dart';
+import '../providers/match_detail_provider.dart';
 import '../providers/standing_provider.dart';
+import '../widgets/leave_match_dialog.dart';
 import 'match_detail_screen.dart';
 
 /// The player's fair-play record: where the reliability score stands, whether
@@ -30,6 +37,7 @@ class MyStandingScreen extends ConsumerWidget {
             tooltip: 'Refresh',
             onPressed: () {
               ref.invalidate(myStandingProvider);
+              ref.invalidate(myUpcomingMatchesProvider);
               ref.invalidate(myPastMatchesProvider);
             },
           ),
@@ -44,6 +52,7 @@ class MyStandingScreen extends ConsumerWidget {
         data: (value) => RefreshIndicator(
           onRefresh: () => Future.wait([
             ref.refresh(myStandingProvider.future),
+            ref.refresh(myUpcomingMatchesProvider.future),
             ref.refresh(myPastMatchesProvider.future),
           ]),
           child: ListView(
@@ -64,6 +73,8 @@ class MyStandingScreen extends ConsumerWidget {
                       'penalty or keep a clean record to lift the score.',
                 ),
               ],
+              const SizedBox(height: 12),
+              const _UpcomingMatches(),
               const SizedBox(height: 12),
               _StatsCard(standing: value),
               const SizedBox(height: 12),
@@ -370,14 +381,144 @@ class _StatTile extends StatelessWidget {
   }
 }
 
+class _UpcomingMatches extends ConsumerStatefulWidget {
+  const _UpcomingMatches();
+
+  @override
+  ConsumerState<_UpcomingMatches> createState() => _UpcomingMatchesState();
+}
+
+class _UpcomingMatchesState extends ConsumerState<_UpcomingMatches> {
+  Timer? _ticker;
+  bool _busy = false;
+
+  @override
+  void initState() {
+    super.initState();
+    // Countdowns and the 3-hour warning change while the page stays open.
+    _ticker = Timer.periodic(const Duration(seconds: 30), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _ticker?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _leave(UpcomingMatch match) async {
+    final ok = await confirmLeaveMatch(context, startsAt: match.startsAt);
+    if (!ok || !mounted) return;
+
+    final late = isLateCancelWindow(match.startsAt);
+    setState(() => _busy = true);
+    try {
+      await ref.read(matchActionControllerProvider.notifier).leave(match.id);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(leaveDoneMessage(late: late))));
+      ref.invalidate(myUpcomingMatchesProvider);
+      ref.invalidate(myPastMatchesProvider);
+      ref.invalidate(myStandingProvider);
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(content: Text(matchActionErrorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final now = ref.watch(clockProvider)();
+
+    return _MatchesCard<UpcomingMatch>(
+      title: 'Upcoming games',
+      icon: Icons.event_available_outlined,
+      matches: ref.watch(myUpcomingMatchesProvider),
+      errorText: 'Could not load your upcoming games.',
+      emptyText: 'Nothing booked yet. Join a game from the feed.',
+      onRetry: () => ref.invalidate(myUpcomingMatchesProvider),
+      tile: (context, match) {
+        final scheme = Theme.of(context).colorScheme;
+        final status = KickoffStatus.at(match.startsAt, now: now);
+        return _StandingMatchTile(
+          matchId: match.id,
+          pitchName: match.pitchName,
+          whenLabel: dayTimeLabel(match.startsAt, match.endsAt),
+          detailLabel: _whereLabel(match.subCityName, match.team),
+          chipLabel: status.chipLabel,
+          chipColor: status.isLateCancelWindow ? scheme.error : scheme.primary,
+          icon: Icons.event_available,
+          notice: status.phase == KickoffPhase.started
+              ? 'Kickoff time has passed.'
+              : status.isLateCancelWindow
+              ? 'Kickoff is under 3 hours away — leaving now costs 25 points.'
+              : null,
+          onLeave: _busy ? null : () => _leave(match),
+        );
+      },
+    );
+  }
+}
+
 class _PastMatches extends ConsumerWidget {
   const _PastMatches();
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    return _MatchesCard<PastMatch>(
+      title: 'Past matches',
+      icon: Icons.history,
+      matches: ref.watch(myPastMatchesProvider),
+      errorText: 'Could not load your past matches.',
+      emptyText: 'Completed matches will appear here after your first game.',
+      onRetry: () => ref.invalidate(myPastMatchesProvider),
+      tile: (context, match) {
+        final scheme = Theme.of(context).colorScheme;
+        return _StandingMatchTile(
+          matchId: match.id,
+          pitchName: match.pitchName,
+          whenLabel: dayTimeLabel(match.startsAt, match.endsAt),
+          detailLabel: _whereLabel(match.subCityName, match.team),
+          chipLabel: match.attended ? 'Played' : 'No-show',
+          chipColor: match.attended ? scheme.primary : scheme.error,
+          icon: match.attended ? Icons.check : Icons.remove,
+        );
+      },
+    );
+  }
+}
+
+/// Shared shell for the two match lists on this page: header, then loading,
+/// error, empty or a divided list of tappable rows.
+class _MatchesCard<T> extends StatelessWidget {
+  const _MatchesCard({
+    required this.title,
+    required this.icon,
+    required this.matches,
+    required this.errorText,
+    required this.emptyText,
+    required this.onRetry,
+    required this.tile,
+  });
+
+  final String title;
+  final IconData icon;
+  final AsyncValue<List<T>> matches;
+  final String errorText;
+  final String emptyText;
+  final VoidCallback onRetry;
+  final Widget Function(BuildContext context, T match) tile;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final matches = ref.watch(myPastMatchesProvider);
 
     return Card(
       child: Padding(
@@ -387,10 +528,10 @@ class _PastMatches extends ConsumerWidget {
           children: [
             Row(
               children: [
-                Icon(Icons.history, color: scheme.primary),
+                Icon(icon, color: scheme.primary),
                 const SizedBox(width: 8),
                 Text(
-                  'Past matches',
+                  title,
                   style: theme.textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
@@ -413,14 +554,14 @@ class _PastMatches extends ConsumerWidget {
                 children: [
                   Expanded(
                     child: Text(
-                      'Could not load your past matches.',
+                      errorText,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
                     ),
                   ),
                   TextButton(
-                    onPressed: () => ref.invalidate(myPastMatchesProvider),
+                    onPressed: onRetry,
                     child: const Text('Try again'),
                   ),
                 ],
@@ -430,8 +571,7 @@ class _PastMatches extends ConsumerWidget {
                   return Padding(
                     padding: const EdgeInsets.only(top: 4, bottom: 8),
                     child: Text(
-                      'Completed matches will appear here after your first '
-                      'game.',
+                      emptyText,
                       style: theme.textTheme.bodyMedium?.copyWith(
                         color: scheme.onSurfaceVariant,
                       ),
@@ -443,7 +583,7 @@ class _PastMatches extends ConsumerWidget {
                     for (var i = 0; i < list.length; i++) ...[
                       if (i > 0)
                         Divider(height: 1, color: scheme.outlineVariant),
-                      _PastMatchTile(match: list[i]),
+                      tile(context, list[i]),
                     ],
                   ],
                 );
@@ -456,76 +596,142 @@ class _PastMatches extends ConsumerWidget {
   }
 }
 
-class _PastMatchTile extends StatelessWidget {
-  const _PastMatchTile({required this.match});
+String _whereLabel(String subCityName, String? team) =>
+    team == null ? subCityName : '$subCityName · Team $team';
 
-  final PastMatch match;
+class _StandingMatchTile extends StatelessWidget {
+  const _StandingMatchTile({
+    required this.matchId,
+    required this.pitchName,
+    required this.whenLabel,
+    required this.detailLabel,
+    required this.chipLabel,
+    required this.chipColor,
+    required this.icon,
+    this.notice,
+    this.onLeave,
+  });
+
+  final String matchId;
+  final String pitchName;
+  final String whenLabel;
+  final String detailLabel;
+  final String chipLabel;
+  final Color chipColor;
+  final IconData icon;
+
+  /// Extra line under the row, used for the late-cancel warning.
+  final String? notice;
+
+  /// Present only on games the player can still drop out of.
+  final VoidCallback? onLeave;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
-    final wall = addisWall(match.startsAt);
-    final day = DateFormat('EEE d MMM').format(wall);
-    final start = DateFormat('HH:mm').format(wall);
-    final end = DateFormat('HH:mm').format(addisWall(match.endsAt));
-    final color = match.attended ? scheme.primary : scheme.error;
 
     return InkWell(
       borderRadius: BorderRadius.circular(12),
       onTap: () => Navigator.of(context).push(
-        MaterialPageRoute(builder: (_) => MatchDetailScreen(matchId: match.id)),
+        MaterialPageRoute(builder: (_) => MatchDetailScreen(matchId: matchId)),
       ),
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 10),
-        child: Row(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: 38,
-              height: 38,
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.12),
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
-                match.attended ? Icons.check : Icons.remove,
-                color: color,
-                size: 20,
-              ),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    match.pitchName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+            Row(
+              children: [
+                Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: chipColor.withValues(alpha: 0.12),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '$day · $start–$end $eatLabel',
-                    style: theme.textTheme.bodySmall?.copyWith(
+                  child: Icon(icon, color: chipColor, size: 20),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        pitchName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        whenLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                      Text(
+                        detailLabel,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _StatusChip(label: chipLabel, color: chipColor),
+                if (onLeave != null)
+                  PopupMenuButton<bool>(
+                    tooltip: 'Game options',
+                    icon: Icon(
+                      Icons.more_vert,
+                      size: 20,
                       color: scheme.onSurfaceVariant,
                     ),
+                    padding: EdgeInsets.zero,
+                    onSelected: (_) => onLeave!(),
+                    itemBuilder: (context) => const [
+                      PopupMenuItem<bool>(
+                        value: true,
+                        child: Row(
+                          children: [
+                            Icon(Icons.logout, size: 18),
+                            SizedBox(width: 8),
+                            Text('Leave game'),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                  Text(
-                    match.team == null
-                        ? match.subCityName
-                        : '${match.subCityName} · Team ${match.team}',
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: scheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+              ],
             ),
-            const SizedBox(width: 8),
-            _AttendanceChip(attended: match.attended),
+            if (notice != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6, left: 50, right: 4),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(
+                      Icons.warning_amber_rounded,
+                      size: 16,
+                      color: scheme.error,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(
+                        notice!,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.error,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),
@@ -533,17 +739,15 @@ class _PastMatchTile extends StatelessWidget {
   }
 }
 
-class _AttendanceChip extends StatelessWidget {
-  const _AttendanceChip({required this.attended});
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({required this.label, required this.color});
 
-  final bool attended;
+  final String label;
+  final Color color;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final color = attended
-        ? theme.colorScheme.primary
-        : theme.colorScheme.error;
 
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
@@ -552,7 +756,7 @@ class _AttendanceChip extends StatelessWidget {
         borderRadius: BorderRadius.circular(20),
       ),
       child: Text(
-        attended ? 'Played' : 'No-show',
+        label,
         style: theme.textTheme.labelMedium?.copyWith(
           color: color,
           fontWeight: FontWeight.w700,

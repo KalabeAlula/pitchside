@@ -1,3 +1,4 @@
+import '../core/time/kickoff_status.dart';
 import 'match_model.dart';
 
 /// One roster row, joined with the player's public name.
@@ -107,11 +108,7 @@ class MatchDetail {
   /// True when giving up this spot falls inside the three-hour window the
   /// reliability rule penalises. Waiting-list places are never penalised, and
   /// the database counts the same window from left_at.
-  bool get isLateCancel {
-    if (!amConfirmed) return false;
-    final deadline = match.startsAt.subtract(const Duration(hours: 3));
-    return !DateTime.now().isBefore(deadline);
-  }
+  bool get isLateCancel => amConfirmed && isLateCancelWindow(match.startsAt);
 
   bool get canJoin => isOpen && !amConfirmed && !amWaitlisted;
 }

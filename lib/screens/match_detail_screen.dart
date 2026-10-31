@@ -14,6 +14,7 @@ import '../providers/organizations_provider.dart';
 import '../widgets/attendance_sheet.dart';
 import '../widgets/field_review_button.dart';
 import '../widgets/join_match_sheet.dart';
+import '../widgets/leave_match_dialog.dart';
 
 /// Everything that matters after tapping a game: when and where it is, who is
 /// already in, and the one action that fits the viewer's role.
@@ -88,29 +89,17 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
 
   Future<void> _leave(MatchDetail detail) async {
     final late = detail.isLateCancel;
-    final kickoff = DateFormat('HH:mm')
-        .format(addisWall(detail.match.startsAt));
-    final ok = await _confirm(
-      title: late ? 'Leave this late?' : 'Leave this match?',
-      body: detail.amWaitlisted
-          ? 'You give up your place in line; confirmed players are unaffected.'
-          : late
-          ? 'Kickoff is at $kickoff $eatLabel, less than 3 hours away. '
-                'Leaving a confirmed spot now costs 25 reliability points. '
-                'Your spot goes to the next player on the waiting list.'
-          : 'Your spot goes to the next player on the waiting list.',
-      confirm: late ? 'Leave anyway' : 'Leave',
-      dismiss: 'Stay',
-      icon: late ? Icons.warning_amber_rounded : null,
+    final ok = await confirmLeaveMatch(
+      context,
+      startsAt: detail.match.startsAt,
+      waitlisted: detail.amWaitlisted,
     );
-    if (ok == true) {
+    if (ok) {
       await _run(
         () => ref
             .read(matchActionControllerProvider.notifier)
             .leave(widget.matchId),
-        done: late
-            ? 'You left the match. 25 points came off your reliability score.'
-            : 'You left the match.',
+        done: leaveDoneMessage(late: late),
       );
     }
   }
@@ -238,14 +227,10 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     required String body,
     required String confirm,
     required String dismiss,
-    IconData? icon,
   }) {
     return showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        icon: icon == null
-            ? null
-            : Icon(icon, color: Theme.of(dialogContext).colorScheme.error),
         title: Text(title),
         content: Text(body),
         actions: [
