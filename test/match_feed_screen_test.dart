@@ -7,9 +7,13 @@ import 'package:pitchside/models/match_model.dart';
 import 'package:pitchside/models/pitch.dart';
 import 'package:pitchside/models/pitch_review.dart';
 import 'package:pitchside/models/pitch_slot.dart';
+import 'package:pitchside/models/player_standing.dart';
 import 'package:pitchside/models/sub_city.dart';
+import 'package:pitchside/providers/match_feed_provider.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/match_feed_screen.dart';
+import 'package:pitchside/screens/my_standing_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'support/fake_pitchside_service.dart';
 
@@ -43,11 +47,24 @@ MatchOverview buildMatch({
 }
 
 class FeedFakeService extends FakePitchsideService {
-  FeedFakeService({required this.subCities, required this.matches});
+  FeedFakeService({
+    required this.subCities,
+    required this.matches,
+    this.standing = const PlayerStanding(
+      score: 100,
+      suspendedUntil: null,
+      matchesPlayed: 0,
+      noShows: 0,
+    ),
+  });
 
   final List<SubCity> subCities;
   final List<MatchOverview> matches;
+  final PlayerStanding standing;
   final joinedMatches = <String>[];
+
+  @override
+  Future<PlayerStanding> getMyStanding() async => standing;
 
   @override
   Future<List<SubCity>> getSubCities() async => subCities;
@@ -241,6 +258,16 @@ void main() {
       expect(find.text('Abebe'), findsOneWidget);
     });
 
+    testWidgets('the shield opens my standing', (tester) async {
+      await pumpFeed(tester);
+
+      await tester.tap(find.byTooltip('My standing'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(MyStandingScreen), findsOneWidget);
+      expect(find.text('Reliability score'), findsOneWidget);
+    });
+
     testWidgets('filtering by sub-city narrows the feed', (tester) async {
       await pumpFeed(tester);
 
@@ -330,6 +357,15 @@ void main() {
       final context = tester.element(find.text('Sarbet Turf House'));
       expect(Theme.of(context).brightness, Brightness.dark);
       expect(find.text('3 spots left!'), findsOneWidget);
+    });
+  });
+
+  group('joinErrorMessage', () {
+    test('explains a reliability suspension', () {
+      expect(
+        joinErrorMessage(PostgrestException(message: 'blocked', code: '45022')),
+        'Your reliability score is too low to join public games yet.',
+      );
     });
   });
 }

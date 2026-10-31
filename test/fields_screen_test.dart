@@ -10,6 +10,7 @@ import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/sub_city.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/fields_screen.dart';
+import 'package:pitchside/screens/pitch_detail_screen.dart';
 
 import 'support/fake_pitchside_service.dart';
 
@@ -43,6 +44,17 @@ const _kazanchis = Pitch(
   surface: 'artificial_grass',
   pricePerHour: 950,
   hasFloodlights: true,
+  isActive: true,
+);
+
+const _noPin = Pitch(
+  id: 'p3',
+  name: 'Berta Meda',
+  subCityId: 'akaky-kaliti',
+  address: 'Akaky Kaliti, Woreda 05',
+  woreda: 'Woreda 05',
+  surface: 'red_ash',
+  pricePerHour: 200,
   isActive: true,
 );
 
@@ -315,6 +327,33 @@ void main() {
       expect(find.text('Pick a slot'), findsOneWidget);
       expect(find.text('08:00 – 10:00'), findsOneWidget);
       expect(find.text('Booked'), findsOneWidget);
+      expect(find.text('Get directions'), findsOneWidget);
+    });
+
+    testWidgets('a field without a published pin still offers directions', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        ProviderScope(
+          overrides: [
+            pitchsideServiceProvider.overrideWithValue(FakeFieldsService()),
+          ],
+          child: MaterialApp(
+            theme: AppTheme.light(),
+            home: const PitchDetailScreen(pitch: _noPin),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Get directions'), findsOneWidget);
+      expect(find.textContaining('Exact pin not published'), findsOneWidget);
+      expect(
+        find.text(
+          'No exact pin yet — Maps searches by the name and address above.',
+        ),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a booked block cannot be selected', (tester) async {

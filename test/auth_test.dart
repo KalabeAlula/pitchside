@@ -7,6 +7,7 @@ import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/auth/auth_gate.dart';
 import 'package:pitchside/screens/auth/sign_in_screen.dart';
 import 'package:pitchside/services/auth_service.dart';
+import 'package:pitchside/widgets/pitchside_logo.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import 'match_feed_screen_test.dart' show FeedFakeService;
@@ -84,6 +85,7 @@ void main() {
 
       expect(find.text('Pickup football in Addis Ababa'), findsOneWidget);
       expect(find.text('Pitchside'), findsOneWidget);
+      expect(find.byType(PitchsideLogo), findsOneWidget);
     });
 
     testWidgets('shows the field directory when signed in', (tester) async {

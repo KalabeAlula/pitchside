@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../core/constants/addis_sub_cities.dart';
 import '../core/format/money.dart';
+import '../core/location/google_maps.dart';
 import '../core/theme/app_colors.dart';
 import '../core/time/addis_time.dart';
 import '../models/pitch.dart';
@@ -64,6 +65,25 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
       ref.invalidate(pitchSlotsProvider);
       Navigator.of(context).pop(true);
     }
+  }
+
+  Future<void> _openDirections() async {
+    final uri = googleMapsDirectionsUri(
+      name: _pitch.name,
+      address: _pitch.address,
+      subCityName: subCityNameFor(_pitch.subCityId),
+      latitude: _pitch.latitude,
+      longitude: _pitch.longitude,
+    );
+    final opened = await openGoogleMaps(uri);
+    if (!mounted || opened) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(
+        content: Text(
+          'Could not open Google Maps. Check your browser and try again.',
+        ),
+      ),
+    );
   }
 
   @override
@@ -221,43 +241,73 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
-                      child: Row(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Icon(
-                            Icons.place_outlined,
-                            color: theme.colorScheme.primary,
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Icon(
+                                Icons.place_outlined,
+                                color: theme.colorScheme.primary,
+                              ),
+                              const SizedBox(width: 12),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      _pitch.address ?? 'Address on request',
+                                      style: theme.textTheme.bodyMedium
+                                          ?.copyWith(
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    Text(
+                                      [
+                                        subCityNameFor(_pitch.subCityId),
+                                        if (_pitch.woreda != null)
+                                          _pitch.woreda!,
+                                        if (_pitch.latitude != null &&
+                                            _pitch.longitude != null)
+                                          '${_pitch.latitude!.toStringAsFixed(4)}, '
+                                              '${_pitch.longitude!.toStringAsFixed(4)}'
+                                        else
+                                          'Exact pin not published',
+                                      ].join(' · '),
+                                      style: theme.textTheme.bodySmall
+                                          ?.copyWith(
+                                            color: theme
+                                                .colorScheme
+                                                .onSurfaceVariant,
+                                          ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
                           ),
-                          const SizedBox(width: 12),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  _pitch.address ?? 'Address on request',
-                                  style: theme.textTheme.bodyMedium?.copyWith(
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  [
-                                    subCityNameFor(_pitch.subCityId),
-                                    if (_pitch.woreda != null) _pitch.woreda!,
-                                    if (_pitch.latitude != null &&
-                                        _pitch.longitude != null)
-                                      '${_pitch.latitude!.toStringAsFixed(4)}, '
-                                          '${_pitch.longitude!.toStringAsFixed(4)}'
-                                    else
-                                      'Exact pin not published',
-                                  ].join(' · '),
-                                  style: theme.textTheme.bodySmall?.copyWith(
-                                    color: theme.colorScheme.onSurfaceVariant,
-                                  ),
-                                ),
-                              ],
+                          const SizedBox(height: 14),
+                          SizedBox(
+                            width: double.infinity,
+                            child: FilledButton.tonalIcon(
+                              onPressed: _openDirections,
+                              icon: const Icon(Icons.directions_outlined),
+                              label: const Text('Get directions'),
                             ),
                           ),
+                          if (_pitch.latitude == null ||
+                              _pitch.longitude == null) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'No exact pin yet — Maps searches by the name '
+                              'and address above.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

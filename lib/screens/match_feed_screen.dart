@@ -8,6 +8,7 @@ import '../providers/sub_cities_provider.dart';
 import '../widgets/join_match_sheet.dart';
 import '../widgets/match_card.dart';
 import 'match_detail_screen.dart';
+import 'my_standing_screen.dart';
 
 class MatchFeedScreen extends ConsumerWidget {
   const MatchFeedScreen({super.key});
@@ -83,6 +84,13 @@ class MatchFeedScreen extends ConsumerWidget {
           ],
         ),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.verified_user_outlined),
+            tooltip: 'My standing',
+            onPressed: () => Navigator.of(
+              context,
+            ).push(MaterialPageRoute(builder: (_) => const MyStandingScreen())),
+          ),
           IconButton(
             icon: const Icon(Icons.refresh),
             onPressed: () => ref.invalidate(matchFeedProvider),

@@ -41,6 +41,7 @@ String joinErrorMessage(Object error) {
       '45001' => 'That match just filled up. Try another game.',
       '45002' => 'This match is no longer open for joining.',
       '45006' => 'You are already on the roster for this match.',
+      '45022' => 'Your reliability score is too low to join public games yet.',
       '45201' => 'This is a club game — only that club\'s members can join.',
       '45202' => 'The other club has not accepted the challenge yet.',
       '42501' => 'Sign in to join a match.',

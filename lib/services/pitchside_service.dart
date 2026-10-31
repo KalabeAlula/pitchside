@@ -7,6 +7,7 @@ import '../models/pitch_slot.dart';
 import '../models/match_detail.dart';
 import '../models/match_model.dart';
 import '../models/organization.dart';
+import '../models/player_standing.dart';
 import '../models/sub_city.dart';
 
 class PitchsideService {
@@ -203,6 +204,21 @@ class PitchsideService {
   /// database refuses while any confirmed player is still unmarked.
   Future<void> completeMatch(String matchId) async {
     await _client.rpc('complete_match', params: {'p_match_id': matchId});
+  }
+
+  /// The caller's own reliability record. The score columns are trigger-owned,
+  /// so this is read-only; RLS exposes only the signed-in player's row.
+  Future<PlayerStanding> getMyStanding() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('Sign in to see your standing.');
+    }
+    final row = await _client
+        .from('profiles')
+        .select('reliability_score, suspended_until, matches_played, no_shows')
+        .eq('id', userId)
+        .single();
+    return PlayerStanding.fromJson(Map<String, dynamic>.from(row));
   }
 
   /// Create a new match (organizer is automatically registered on Team A).

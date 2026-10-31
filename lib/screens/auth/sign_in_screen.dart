@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../widgets/pitchside_logo.dart';
 import 'auth_validators.dart';
 import 'sign_up_screen.dart';
 
@@ -67,12 +68,8 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Icon(
-                      Icons.sports_soccer,
-                      size: 64,
-                      color: theme.colorScheme.primary,
-                    ),
-                    const SizedBox(height: 12),
+                    const Center(child: PitchsideLogo(size: 96)),
+                    const SizedBox(height: 16),
                     Text(
                       'Pitchside',
                       textAlign: TextAlign.center,

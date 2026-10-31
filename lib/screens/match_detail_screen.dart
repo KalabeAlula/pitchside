@@ -245,8 +245,11 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
   }
 
   void _toast(String message) {
+    // Quick successive actions (mark, then complete) replace the message
+    // instead of queueing behind it.
     ScaffoldMessenger.of(context)
-        .showSnackBar(SnackBar(content: Text(message)));
+      ..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
