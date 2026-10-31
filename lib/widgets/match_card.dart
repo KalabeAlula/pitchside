@@ -29,6 +29,7 @@ class MatchCard extends StatelessWidget {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final startsAt = addisWall(match.startsAt);
+    final endsAt = addisWall(match.endsAt);
 
     return Card(
       clipBehavior: Clip.antiAlias,
@@ -43,15 +44,20 @@ class MatchCard extends StatelessWidget {
                 children: [
                   Icon(Icons.schedule, size: 16, color: scheme.primary),
                   const SizedBox(width: 6),
-                  Text(
-                    '${DateFormat('EEE, d MMM').format(startsAt)} · '
-                    '${DateFormat('HH:mm').format(startsAt)}',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: scheme.primary,
-                      fontWeight: FontWeight.w700,
+                  Expanded(
+                    child: Text(
+                      '${DateFormat('EEE, d MMM').format(startsAt)} · '
+                      '${DateFormat('HH:mm').format(startsAt)} – '
+                      '${DateFormat('HH:mm').format(endsAt)} $eatLabel',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: scheme.primary,
+                        fontWeight: FontWeight.w700,
+                      ),
                     ),
                   ),
-                  const Spacer(),
+                  const SizedBox(width: 8),
                   _SpotsBadge(spotsLeft: match.spotsLeft),
                 ],
               ),

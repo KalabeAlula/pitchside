@@ -10,7 +10,8 @@ import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/sub_city.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/match_feed_screen.dart';
-import 'package:pitchside/services/pitchside_service.dart';
+
+import 'support/fake_pitchside_service.dart';
 
 MatchOverview buildMatch({
   required String id,
@@ -41,8 +42,8 @@ MatchOverview buildMatch({
   );
 }
 
-class FakePitchsideService implements PitchsideService {
-  FakePitchsideService({required this.subCities, required this.matches});
+class FeedFakeService extends FakePitchsideService {
+  FeedFakeService({required this.subCities, required this.matches});
 
   final List<SubCity> subCities;
   final List<MatchOverview> matches;
@@ -128,6 +129,8 @@ class FakePitchsideService implements PitchsideService {
     int durationMinutes = 60,
     double pricePerPlayer = 0.0,
     String? notes,
+    String? organizationId,
+    String? opponentOrganizationId,
   }) => throw UnimplementedError();
 
   @override
@@ -137,8 +140,8 @@ class FakePitchsideService implements PitchsideService {
   Future<void> shuffleTeams(String matchId) => throw UnimplementedError();
 }
 
-Future<FakePitchsideService> pumpFeed(WidgetTester tester) async {
-  final service = FakePitchsideService(
+Future<FeedFakeService> pumpFeed(WidgetTester tester) async {
+  final service = FeedFakeService(
     subCities: const [
       SubCity(id: 'bole', nameEn: 'Bole', nameAm: 'ቦሌ'),
       SubCity(id: 'kirkos', nameEn: 'Kirkos', nameAm: 'ቂርቆስ'),
@@ -224,7 +227,7 @@ void main() {
       await pumpFeed(tester);
 
       // 15:30 UTC on 2 Nov 2026 is 18:30 EAT, whatever the device clock says.
-      expect(find.text('Mon, 2 Nov · 18:30'), findsNWidgets(2));
+      expect(find.textContaining('Mon, 2 Nov · 18:30'), findsNWidgets(2));
     });
 
     testWidgets('tapping a card opens its match page', (tester) async {
@@ -305,19 +308,8 @@ void main() {
       expect(service.joinedMatches, isEmpty);
     });
 
-    testWidgets('create match button opens the organizer form', (tester) async {
-      await pumpFeed(tester);
-
-      await tester.tap(find.text('Create match'));
-      await tester.pumpAndSettle();
-
-      expect(find.text('Create a match'), findsOneWidget);
-      expect(find.text('Pitch'), findsOneWidget);
-      expect(find.text('Price per player (ETB)'), findsOneWidget);
-    });
-
     testWidgets('renders in dark mode', (tester) async {
-      final service = FakePitchsideService(
+      final service = FeedFakeService(
         subCities: const [],
         matches: [buildMatch(id: 'm1', pitchName: 'Sarbet Turf House')],
       );

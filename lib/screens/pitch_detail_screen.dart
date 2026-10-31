@@ -313,7 +313,7 @@ class _SlotPicker extends ConsumerWidget {
           children: [
             Expanded(
               child: Text(
-                '${pitch.blockHours}-hour blocks in $eatLabel · '
+                '${pitch.blockHours}-hour blocks in $eatLabel (UTC+3) · '
                 '${etb(pitch.blockPrice)} ETB each',
                 style: theme.textTheme.bodySmall?.copyWith(
                   color: theme.colorScheme.onSurfaceVariant,
@@ -888,7 +888,7 @@ class _BookingBar extends StatelessWidget {
                       selected == null
                           ? '${etb(pitch.pricePerHour)} ETB / HR'
                           : '${DateFormat('EEE d MMM · HH:mm').format(addisWall(selected.start))}'
-                                ' – ${DateFormat.Hm().format(addisWall(selected.end))}',
+                                ' – ${DateFormat.Hm().format(addisWall(selected.end))} $eatLabel',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.titleSmall?.copyWith(

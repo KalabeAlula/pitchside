@@ -6,8 +6,11 @@ import '../core/format/money.dart';
 import '../core/time/addis_time.dart';
 import '../models/match_detail.dart';
 import '../models/match_model.dart';
+import '../models/organization.dart';
 import '../providers/match_detail_provider.dart';
 import '../providers/match_feed_provider.dart';
+import '../providers/organizations_provider.dart';
+import '../widgets/attendance_sheet.dart';
 import '../widgets/join_match_sheet.dart';
 
 /// Everything that matters after tapping a game: when and where it is, who is
@@ -105,6 +108,62 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     done: 'Teams shuffled.',
   );
 
+  /// Roll call. The sheet returns the present ids; everyone else on the
+  /// confirmed roster is recorded as a no-show. The server rejects this
+  /// before kickoff.
+  Future<void> _takeAttendance(MatchDetail detail) async {
+    final present = await showModalBottomSheet<List<String>>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (_) => AttendanceSheet(detail: detail),
+    );
+    if (present == null || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      final counts = await ref
+          .read(matchActionControllerProvider.notifier)
+          .markAttendance(widget.matchId, present);
+      if (!mounted) return;
+      _toast(
+        'Attendance saved — ${counts.present} present, '
+        '${counts.absent} no-show${counts.absent == 1 ? '' : 's'}.',
+      );
+    } catch (error) {
+      if (mounted) _toast(matchActionErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  /// Completion needs every confirmed player marked; tapping early opens the
+  /// roll call instead of letting the server refuse it.
+  Future<void> _complete(MatchDetail detail) async {
+    if (!detail.attendanceMarked) {
+      _toast('Mark attendance for every confirmed player first.');
+      await _takeAttendance(detail);
+      return;
+    }
+
+    final ok = await _confirm(
+      title: 'Complete this match?',
+      body:
+          'Attendance is finalised and no-shows are recorded on player '
+          'profiles. This cannot be undone.',
+      confirm: 'Complete match',
+      dismiss: 'Not yet',
+    );
+    if (ok == true) {
+      await _run(
+        () => ref
+            .read(matchActionControllerProvider.notifier)
+            .complete(widget.matchId),
+        done: 'Match completed.',
+      );
+    }
+  }
+
   Future<void> _cancel() async {
     final ok = await _confirm(
       title: 'Cancel this match?',
@@ -121,6 +180,27 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
             .cancel(widget.matchId),
         done: 'Match cancelled.',
       );
+    }
+  }
+
+  /// Answer a club challenge: accepting opens the opponent's side, declining
+  /// cancels the match and releases the field block.
+  Future<void> _respond(MatchOverview match, {required bool accept}) async {
+    setState(() => _busy = true);
+    try {
+      await ref
+          .read(matchActionControllerProvider.notifier)
+          .respond(match.id, accept: accept);
+      if (!mounted) return;
+      _toast(
+        accept
+            ? 'Challenge accepted. Your players can join now.'
+            : 'Challenge declined and the field block released.',
+      );
+    } catch (error) {
+      if (mounted) _toast(matchActionErrorMessage(error));
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
   }
 
@@ -174,6 +254,11 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     final detail = ref.watch(matchDetailProvider(widget.matchId));
     final match = detail.value?.match ?? widget.initialMatch;
 
+    // Only club matches need to know which clubs the viewer belongs to.
+    final memberships = (match?.isOrgMatch ?? false)
+        ? ref.watch(myOrganizationsProvider).value
+        : null;
+
     return Scaffold(
       appBar: AppBar(title: const Text('Match details')),
       body: SafeArea(
@@ -206,7 +291,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           ),
         ),
       ),
-      bottomNavigationBar: _actionBar(detail.value),
+      bottomNavigationBar: _actionBar(detail.value, memberships),
     );
   }
 
@@ -243,7 +328,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         children: [
           Expanded(
             child: _TeamColumn(
-              title: 'Team A',
+              title: match.isChallenge
+                  ? (match.organizationName ?? 'Host club')
+                  : 'Team A',
               players: detail.teamA,
               capacity: match.teamSize,
               meId: detail.currentUserId,
@@ -252,7 +339,9 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           const SizedBox(width: 12),
           Expanded(
             child: _TeamColumn(
-              title: 'Team B',
+              title: match.isChallenge
+                  ? (match.opponentOrganizationName ?? 'Opponent')
+                  : 'Team B',
               players: detail.teamB,
               capacity: match.teamSize,
               meId: detail.currentUserId,
@@ -267,12 +356,36 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     ];
   }
 
-  Widget? _actionBar(MatchDetail? detail) {
+  bool _belongsTo(List<OrganizationMembership>? memberships, String? orgId) {
+    if (memberships == null || orgId == null) return false;
+    for (final membership in memberships) {
+      if (membership.organization.id == orgId) return true;
+    }
+    return false;
+  }
+
+  bool _manages(List<OrganizationMembership>? memberships, String? orgId) {
+    if (memberships == null || orgId == null) return false;
+    for (final membership in memberships) {
+      if (membership.organization.id == orgId) return membership.canManage;
+    }
+    return false;
+  }
+
+  Widget? _actionBar(
+    MatchDetail? detail,
+    List<OrganizationMembership>? memberships,
+  ) {
     if (detail == null) return null;
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
     final match = detail.match;
     final Widget child;
+
+    final isParticipant = match.isInternal
+        ? _belongsTo(memberships, match.organizationId)
+        : _belongsTo(memberships, match.organizationId) ||
+              _belongsTo(memberships, match.opponentOrganizationId);
 
     if (match.status == 'cancelled') {
       child = const _StatusLine(
@@ -280,26 +393,109 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         text: 'This match was cancelled.',
       );
     } else if (match.status == 'completed') {
-      child = const _StatusLine(
+      final marked = detail.confirmedPlayers
+          .where((player) => player.attended != null)
+          .toList(growable: false);
+      final present = marked.where((player) => player.attended == true).length;
+      final absent = marked.length - present;
+      child = _StatusLine(
         icon: Icons.flag_outlined,
-        text: 'This match has been played.',
+        text: marked.isEmpty
+            ? 'This match has been played.'
+            : 'Played · $present present, '
+                  '$absent no-show${absent == 1 ? '' : 's'}',
       );
     } else if (!detail.isOpen) {
-      child = const _StatusLine(
-        icon: Icons.schedule,
-        text: 'Kickoff has passed.',
+      // After kickoff the roster is frozen: the organizer does the roll call,
+      // then closes the match. Pending challenges still need a cancel.
+      if (detail.isOrganizer && !match.challengePending) {
+        child = Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _takeAttendance(detail),
+                icon: const Icon(Icons.fact_check_outlined),
+                label: const Text('Attendance'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _busy ? null : () => _complete(detail),
+                icon: const Icon(Icons.flag_outlined),
+                label: const Text('Complete'),
+              ),
+            ),
+          ],
+        );
+      } else {
+        child = const _StatusLine(
+          icon: Icons.schedule,
+          text: 'Kickoff has passed.',
+        );
+      }
+    } else if (match.challengePending) {
+      if (_manages(memberships, match.opponentOrganizationId)) {
+        child = Row(
+          children: [
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : () => _respond(match, accept: false),
+                icon: const Icon(Icons.close),
+                label: const Text('Decline'),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: FilledButton.icon(
+                onPressed: _busy ? null : () => _respond(match, accept: true),
+                icon: const Icon(Icons.check),
+                label: const Text('Accept'),
+              ),
+            ),
+          ],
+        );
+      } else if (detail.isOrganizer) {
+        child = FilledButton.tonalIcon(
+          onPressed: _busy ? null : _cancel,
+          icon: const Icon(Icons.event_busy),
+          label: const Text('Cancel challenge'),
+        );
+      } else if (isParticipant) {
+        child = _StatusLine(
+          icon: Icons.hourglass_top,
+          text:
+              'Waiting for '
+              '${match.opponentOrganizationName ?? 'the other club'} to accept.',
+        );
+      } else {
+        child = const _StatusLine(
+          icon: Icons.lock_outline,
+          text: 'This is a private club challenge.',
+        );
+      }
+    } else if (match.isOrgMatch && memberships != null && !isParticipant) {
+      child = _StatusLine(
+        icon: Icons.lock_outline,
+        text: match.isInternal
+            ? 'Only ${match.organizationName ?? 'club'} members can join.'
+            : 'Only ${match.organizationName ?? 'the host club'} and '
+                  '${match.opponentOrganizationName ?? 'the opponent'} '
+                  'players can join.',
       );
     } else if (detail.isOrganizer) {
       child = Row(
         children: [
-          Expanded(
-            child: OutlinedButton.icon(
-              onPressed: _busy ? null : _shuffle,
-              icon: const Icon(Icons.shuffle),
-              label: const Text('Shuffle'),
+          if (!match.isChallenge) ...[
+            Expanded(
+              child: OutlinedButton.icon(
+                onPressed: _busy ? null : _shuffle,
+                icon: const Icon(Icons.shuffle),
+                label: const Text('Shuffle'),
+              ),
             ),
-          ),
-          const SizedBox(width: 12),
+            const SizedBox(width: 12),
+          ],
           Expanded(
             child: FilledButton.tonalIcon(
               onPressed: _busy ? null : _cancel,
@@ -393,12 +589,41 @@ class _SummaryCard extends StatelessWidget {
           ),
           const SizedBox(height: 2),
           Text(
-            '${match.subCityName} · ${match.formatLabel} · '
-            'by ${match.organizerName}',
+            match.isOrgMatch
+                ? '${match.subCityName} · ${match.formatLabel} · '
+                      '${match.clubLabel}'
+                : '${match.subCityName} · ${match.formatLabel} · '
+                      'by ${match.organizerName}',
             style: theme.textTheme.bodySmall?.copyWith(
               color: scheme.onSurfaceVariant,
             ),
           ),
+          if (match.isOrgMatch) ...[
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Icon(
+                  match.isChallenge ? Icons.handshake_outlined : Icons.groups,
+                  size: 16,
+                  color: scheme.primary,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    match.challengePending
+                        ? 'Club challenge — waiting for the opponent'
+                        : match.isInternal
+                        ? 'Club game — members only'
+                        : 'Club challenge — both squads playing',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: scheme.primary,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
           const SizedBox(height: 10),
           Row(
             children: [
@@ -446,6 +671,10 @@ class _SpotsChip extends StatelessWidget {
       label = 'Played';
       background = scheme.surfaceContainerHighest;
       foreground = scheme.onSurfaceVariant;
+    } else if (match.challengePending) {
+      label = 'Awaiting reply';
+      background = scheme.tertiaryContainer;
+      foreground = scheme.onTertiaryContainer;
     } else if (match.isFull) {
       label = 'Full';
       background = scheme.errorContainer;
@@ -498,13 +727,17 @@ class _TeamColumn extends StatelessWidget {
       children: [
         Row(
           children: [
-            Text(
-              title,
-              style: theme.textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
               ),
             ),
-            const Spacer(),
+            const SizedBox(width: 6),
             Text(
               '${players.length}/$capacity',
               style: theme.textTheme.labelSmall?.copyWith(

@@ -9,7 +9,7 @@ import 'package:pitchside/screens/auth/sign_in_screen.dart';
 import 'package:pitchside/services/auth_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-import 'match_feed_screen_test.dart' show FakePitchsideService;
+import 'match_feed_screen_test.dart' show FeedFakeService;
 
 class FakeAuthService implements AuthService {
   Map<String, dynamic>? signUpCall;
@@ -92,7 +92,7 @@ void main() {
           overrides: [
             signedInProvider.overrideWith((ref) => Stream.value(true)),
             pitchsideServiceProvider.overrideWithValue(
-              FakePitchsideService(subCities: const [], matches: const []),
+              FeedFakeService(subCities: const [], matches: const []),
             ),
           ],
           child: MaterialApp(theme: AppTheme.light(), home: const AuthGate()),

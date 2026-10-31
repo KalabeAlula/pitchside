@@ -10,7 +10,8 @@ import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/sub_city.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/fields_screen.dart';
-import 'package:pitchside/services/pitchside_service.dart';
+
+import 'support/fake_pitchside_service.dart';
 
 const _atlas = Pitch(
   id: 'p1',
@@ -45,7 +46,7 @@ const _kazanchis = Pitch(
   isActive: true,
 );
 
-class FakeFieldsService implements PitchsideService {
+class FakeFieldsService extends FakePitchsideService {
   final requestedQueries = <String>[];
 
   @override
@@ -127,6 +128,8 @@ class FakeFieldsService implements PitchsideService {
     int durationMinutes = 60,
     double pricePerPlayer = 0.0,
     String? notes,
+    String? organizationId,
+    String? opponentOrganizationId,
   }) => throw UnimplementedError();
 
   @override

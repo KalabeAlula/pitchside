@@ -6,6 +6,7 @@ import '../models/pitch_review.dart';
 import '../models/pitch_slot.dart';
 import '../models/match_detail.dart';
 import '../models/match_model.dart';
+import '../models/organization.dart';
 import '../models/sub_city.dart';
 
 class PitchsideService {
@@ -100,15 +101,39 @@ class PitchsideService {
   }
 
   /// Upcoming scheduled matches, optionally narrowed to one sub-city.
-  /// Filtering happens in Postgres, not on the device.
+  /// Filtering happens in Postgres, not on the device. Club games are not
+  /// public pickups, so the feed asks for the public audience only.
   Future<List<MatchOverview>> getMatches({String? subCityId}) async {
     var query = _client
         .from('match_overview')
         .select()
         .eq('status', 'scheduled')
+        .eq('audience', 'public')
         .gt('starts_at', DateTime.now().toUtc().toIso8601String());
     if (subCityId != null) {
       query = query.eq('sub_city_id', subCityId);
+    }
+    final response = await query.order('starts_at', ascending: true);
+    return (response as List)
+        .map((json) => MatchOverview.fromJson(json))
+        .toList();
+  }
+
+  /// Upcoming club matches the signed-in player can see: internal games of
+  /// their clubs and challenges involving them. RLS narrows the rows; the
+  /// audience filter keeps public pickups out of the club view.
+  Future<List<MatchOverview>> getOrgMatches({String? organizationId}) async {
+    var query = _client
+        .from('match_overview')
+        .select()
+        .eq('status', 'scheduled')
+        .neq('audience', 'public')
+        .gt('starts_at', DateTime.now().toUtc().toIso8601String());
+    if (organizationId != null) {
+      query = query.or(
+        'organization_id.eq.$organizationId,'
+        'opponent_organization_id.eq.$organizationId',
+      );
     }
     final response = await query.order('starts_at', ascending: true);
     return (response as List)
@@ -126,7 +151,10 @@ class PitchsideService {
         .single();
     final roster = await _client
         .from('match_players')
-        .select('user_id, team, member_status, joined_at, profiles(full_name)')
+        .select(
+          'user_id, team, member_status, joined_at, attended, '
+          'profiles(full_name)',
+        )
         .eq('match_id', matchId)
         .order('joined_at', ascending: true);
     return MatchDetail(
@@ -153,7 +181,33 @@ class PitchsideService {
     return (rows as List).isNotEmpty;
   }
 
-  /// Create a new match (organizer is automatically registered on Team A)
+  /// Organizer's roll call, allowed only after kickoff. Everyone passed in
+  /// [presentUserIds] is recorded as attended; the rest of the confirmed
+  /// roster becomes a no-show. Can be called again to correct a mark.
+  Future<({int present, int absent})> markAttendance(
+    String matchId,
+    List<String> presentUserIds,
+  ) async {
+    final response = await _client.rpc(
+      'mark_attendance',
+      params: {'p_match_id': matchId, 'p_present_user_ids': presentUserIds},
+    );
+    final row = (response as List).first as Map<String, dynamic>;
+    return (
+      present: (row['present_count'] as num).toInt(),
+      absent: (row['absent_count'] as num).toInt(),
+    );
+  }
+
+  /// Organizer-only. Closes the match after the roll call is complete; the
+  /// database refuses while any confirmed player is still unmarked.
+  Future<void> completeMatch(String matchId) async {
+    await _client.rpc('complete_match', params: {'p_match_id': matchId});
+  }
+
+  /// Create a new match (organizer is automatically registered on Team A).
+  /// Passing a club makes it an internal club game; adding an opponent turns
+  /// it into a challenge the other club has to accept.
   Future<Map<String, dynamic>> createMatch({
     required String pitchId,
     required int teamSize,
@@ -161,6 +215,8 @@ class PitchsideService {
     int durationMinutes = 60,
     double pricePerPlayer = 0.0,
     String? notes,
+    String? organizationId,
+    String? opponentOrganizationId,
   }) async {
     final response = await _client.rpc(
       'create_match',
@@ -171,9 +227,114 @@ class PitchsideService {
         'p_duration_minutes': durationMinutes,
         'p_price_per_player': pricePerPlayer,
         'p_notes': notes,
+        'p_organization_id': organizationId,
+        'p_opponent_organization_id': opponentOrganizationId,
       },
     );
     return Map<String, dynamic>.from(response as Map);
+  }
+
+  /// Clubs the signed-in player belongs to, with their seat in each.
+  Future<List<OrganizationMembership>> getMyOrganizations() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final response = await _client
+        .from('organization_members')
+        .select(
+          'role, joined_at, '
+          'organizations(id, name, about, sub_city_id, created_by, created_at)',
+        )
+        .eq('user_id', userId)
+        .order('joined_at', ascending: false);
+    return (response as List)
+        .map(
+          (json) => OrganizationMembership.fromJson(
+            Map<String, dynamic>.from(json as Map),
+          ),
+        )
+        .toList();
+  }
+
+  /// Every club on Pitchside — the list a challenge picks an opponent from.
+  /// The join code is not part of this row; it lives in a manager-only table.
+  Future<List<Organization>> getOrganizations() async {
+    final response = await _client
+        .from('organizations')
+        .select()
+        .order('name', ascending: true);
+    return (response as List)
+        .map(
+          (json) =>
+              Organization.fromJson(Map<String, dynamic>.from(json as Map)),
+        )
+        .toList();
+  }
+
+  Future<Organization> createOrganization({
+    required String name,
+    String? about,
+    String? subCityId,
+  }) async {
+    final response = await _client.rpc(
+      'create_organization',
+      params: {'p_name': name, 'p_about': about, 'p_sub_city_id': subCityId},
+    );
+    return Organization.fromJson(Map<String, dynamic>.from(response as Map));
+  }
+
+  Future<Organization> joinOrganization(String code) async {
+    final response = await _client.rpc(
+      'join_organization',
+      params: {'p_code': code},
+    );
+    return Organization.fromJson(Map<String, dynamic>.from(response as Map));
+  }
+
+  Future<void> leaveOrganization(String organizationId) async {
+    await _client.rpc(
+      'leave_organization',
+      params: {'p_org_id': organizationId},
+    );
+  }
+
+  Future<List<OrganizationMember>> getOrganizationMembers(
+    String organizationId,
+  ) async {
+    final response = await _client
+        .from('organization_members')
+        .select('user_id, role, joined_at, profiles(full_name)')
+        .eq('org_id', organizationId)
+        .order('joined_at', ascending: true);
+    return (response as List)
+        .map(
+          (json) => OrganizationMember.fromJson(
+            Map<String, dynamic>.from(json as Map),
+          ),
+        )
+        .toList();
+  }
+
+  /// Null when the caller is not a manager: RLS hides the row from everyone
+  /// else, so the code never reaches a regular member's device.
+  Future<String?> getOrganizationJoinCode(String organizationId) async {
+    final row = await _client
+        .from('organization_join_codes')
+        .select('code')
+        .eq('org_id', organizationId)
+        .maybeSingle();
+    return row?['code'] as String?;
+  }
+
+  /// Accept or decline a club challenge. Declining cancels the match, which
+  /// frees the field block the host booked.
+  Future<void> respondToChallenge(
+    String matchId, {
+    required bool accept,
+  }) async {
+    await _client.rpc(
+      'respond_to_challenge',
+      params: {'p_match_id': matchId, 'p_accept': accept},
+    );
   }
 
   /// Join a match (concurrency safe, auto team balance, auto-waitlists if full)

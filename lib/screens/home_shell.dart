@@ -2,9 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'fields_screen.dart';
 import 'match_feed_screen.dart';
+import 'orgs_screen.dart';
 
-/// Root shell after sign-in: the field directory leads, pickup games sit one
-/// tap away.
+/// Root shell after sign-in: the field directory leads, pickup games and the
+/// player's clubs sit one tap away.
 class HomeShell extends StatefulWidget {
   const HomeShell({super.key});
 
@@ -20,7 +21,7 @@ class _HomeShellState extends State<HomeShell> {
     return Scaffold(
       body: IndexedStack(
         index: _index,
-        children: const [FieldsScreen(), MatchFeedScreen()],
+        children: const [FieldsScreen(), MatchFeedScreen(), OrgsScreen()],
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _index,
@@ -35,6 +36,11 @@ class _HomeShellState extends State<HomeShell> {
             icon: Icon(Icons.sports_soccer_outlined),
             selectedIcon: Icon(Icons.sports_soccer),
             label: 'Games',
+          ),
+          NavigationDestination(
+            icon: Icon(Icons.groups_2_outlined),
+            selectedIcon: Icon(Icons.groups_2),
+            label: 'Clubs',
           ),
         ],
       ),

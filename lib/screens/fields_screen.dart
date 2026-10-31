@@ -8,6 +8,7 @@ import '../core/theme/field_art.dart';
 import '../models/pitch.dart';
 import '../providers/auth_provider.dart';
 import '../providers/fields_provider.dart';
+import '../providers/match_feed_provider.dart';
 import '../providers/sub_cities_provider.dart';
 import '../widgets/field_card.dart';
 import 'pitch_detail_screen.dart';
@@ -60,6 +61,7 @@ class _FieldsScreenState extends ConsumerState<FieldsScreen> {
       MaterialPageRoute(builder: (_) => PitchDetailScreen(pitch: pitch)),
     );
     if (created == true) {
+      ref.invalidate(matchFeedProvider);
       messenger.showSnackBar(
         const SnackBar(content: Text('Match created. You are on Team A.')),
       );

@@ -11,10 +11,11 @@ import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/sub_city.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/create_match_screen.dart';
-import 'package:pitchside/services/pitchside_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
-class FakeCreateMatchService implements PitchsideService {
+import 'support/fake_pitchside_service.dart';
+
+class FakeCreateMatchService extends FakePitchsideService {
   final createdMatches = <Map<String, Object?>>[];
   Object? createError;
 
@@ -81,6 +82,8 @@ class FakeCreateMatchService implements PitchsideService {
     int durationMinutes = 60,
     double pricePerPlayer = 0.0,
     String? notes,
+    String? organizationId,
+    String? opponentOrganizationId,
   }) async {
     if (createError != null) throw createError!;
     createdMatches.add({
@@ -90,6 +93,8 @@ class FakeCreateMatchService implements PitchsideService {
       'durationMinutes': durationMinutes,
       'pricePerPlayer': pricePerPlayer,
       'notes': notes,
+      'organizationId': organizationId,
+      'opponentOrganizationId': opponentOrganizationId,
     });
     return {'id': 'match-1'};
   }
@@ -236,7 +241,7 @@ void main() {
     expect(find.text('Sarbet Turf House'), findsOneWidget);
     expect(find.text('Bole'), findsOneWidget);
     expect(find.text('120 minutes'), findsOneWidget);
-    expect(find.textContaining('6:00'), findsWidgets);
+    expect(find.textContaining('18:00'), findsWidgets);
     expect(find.textContaining('2-hour block at the field'), findsOneWidget);
     expect(find.textContaining('4,000 ETB'), findsOneWidget);
 

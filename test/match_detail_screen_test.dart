@@ -10,14 +10,16 @@ import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/sub_city.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/match_detail_screen.dart';
-import 'package:pitchside/services/pitchside_service.dart';
+
+import 'support/fake_pitchside_service.dart';
 
 MatchOverview buildMatch({
   String status = 'scheduled',
   int teamSize = 5,
   int spotsLeft = 8,
+  DateTime? startsAt,
 }) {
-  final startsAt = DateTime.now().add(const Duration(days: 2));
+  final kickoff = startsAt ?? DateTime.now().add(const Duration(days: 2));
   return MatchOverview(
     id: 'm1',
     pitchId: 'p1',
@@ -32,8 +34,8 @@ MatchOverview buildMatch({
     maxPlayers: teamSize * 2,
     currentPlayers: teamSize * 2 - spotsLeft,
     spotsLeft: spotsLeft,
-    startsAt: startsAt,
-    endsAt: startsAt.add(const Duration(minutes: 120)),
+    startsAt: kickoff,
+    endsAt: kickoff.add(const Duration(minutes: 120)),
     pricePerPlayer: 150,
     status: status,
     notes: 'Bring a light and dark shirt',
@@ -45,45 +47,55 @@ MatchDetail buildDetail({
   String? myStatus,
   String status = 'scheduled',
   int spotsLeft = 8,
+  DateTime? startsAt,
+  bool marked = false,
+  Set<String> absent = const {},
 }) {
+  MatchPlayer player(
+    String id,
+    String name,
+    String? team,
+    String memberStatus,
+    DateTime joinedAt,
+  ) {
+    return MatchPlayer(
+      userId: id,
+      fullName: name,
+      team: team,
+      status: memberStatus,
+      joinedAt: joinedAt,
+      attended: marked && memberStatus == 'confirmed'
+          ? !absent.contains(id)
+          : null,
+    );
+  }
+
   return MatchDetail(
-    match: buildMatch(status: status, spotsLeft: spotsLeft),
+    match: buildMatch(status: status, spotsLeft: spotsLeft, startsAt: startsAt),
     players: [
-      MatchPlayer(
-        userId: 'organizer-1',
-        fullName: 'Abebe Bekele',
-        team: 'A',
-        status: 'confirmed',
-        joinedAt: DateTime(2026, 10, 28),
+      player(
+        'organizer-1',
+        'Abebe Bekele',
+        'A',
+        'confirmed',
+        DateTime(2026, 10, 28),
       ),
-      MatchPlayer(
-        userId: 'p2',
-        fullName: 'Dawit Hailu',
-        team: 'B',
-        status: 'confirmed',
-        joinedAt: DateTime(2026, 10, 29),
-      ),
-      MatchPlayer(
-        userId: 'w1',
-        fullName: 'Selam Tadesse',
-        team: null,
-        status: 'waitlisted',
-        joinedAt: DateTime(2026, 10, 30),
-      ),
+      player('p2', 'Dawit Hailu', 'B', 'confirmed', DateTime(2026, 10, 29)),
+      player('w1', 'Selam Tadesse', null, 'waitlisted', DateTime(2026, 10, 30)),
       if (myStatus != null)
-        MatchPlayer(
-          userId: 'me',
-          fullName: 'Kaleab Girma',
-          team: myStatus == 'confirmed' ? 'A' : null,
-          status: myStatus,
-          joinedAt: DateTime(2026, 10, 30, 12),
+        player(
+          'me',
+          'Kaleab Girma',
+          myStatus == 'confirmed' ? 'A' : null,
+          myStatus,
+          DateTime(2026, 10, 30, 12),
         ),
     ],
     currentUserId: currentUserId,
   );
 }
 
-class FakeMatchDetailService implements PitchsideService {
+class FakeMatchDetailService extends FakePitchsideService {
   FakeMatchDetailService(this.detail);
 
   MatchDetail detail;
@@ -92,6 +104,8 @@ class FakeMatchDetailService implements PitchsideService {
   final shuffled = <String>[];
   final cancelled = <String>[];
   final joined = <String>[];
+  final marked = <List<String>>[];
+  final completed = <String>[];
 
   @override
   Future<MatchDetail> getMatchDetail(String matchId) async => detail;
@@ -113,6 +127,39 @@ class FakeMatchDetailService implements PitchsideService {
     cancelled.add(matchId);
     return true;
   }
+
+  @override
+  Future<({int present, int absent})> markAttendance(
+    String matchId,
+    List<String> presentUserIds,
+  ) async {
+    marked.add(presentUserIds);
+    final confirmed = detail.confirmedPlayers;
+    final present = confirmed
+        .where((player) => presentUserIds.contains(player.userId))
+        .length;
+    detail = MatchDetail(
+      match: detail.match,
+      players: [
+        for (final player in detail.players)
+          MatchPlayer(
+            userId: player.userId,
+            fullName: player.fullName,
+            team: player.team,
+            status: player.status,
+            joinedAt: player.joinedAt,
+            attended: player.isConfirmed
+                ? presentUserIds.contains(player.userId)
+                : player.attended,
+          ),
+      ],
+      currentUserId: detail.currentUserId,
+    );
+    return (present: present, absent: confirmed.length - present);
+  }
+
+  @override
+  Future<void> completeMatch(String matchId) async => completed.add(matchId);
 
   @override
   Future<List<SubCity>> getSubCities() async => const [];
@@ -153,6 +200,8 @@ class FakeMatchDetailService implements PitchsideService {
     int durationMinutes = 60,
     double pricePerPlayer = 0.0,
     String? notes,
+    String? organizationId,
+    String? opponentOrganizationId,
   }) => throw UnimplementedError();
 }
 
@@ -318,6 +367,102 @@ void main() {
       expect(find.text('Cancel match'), findsNothing);
       expect(find.text('Shuffle'), findsNothing);
       expect(find.text('Join match'), findsNothing);
+    });
+
+    testWidgets('the organizer records the roll call after kickoff', (
+      tester,
+    ) async {
+      final service = await pumpDetail(
+        tester,
+        buildDetail(
+          currentUserId: 'organizer-1',
+          startsAt: DateTime.now().subtract(const Duration(hours: 1)),
+        ),
+      );
+
+      expect(find.text('Attendance'), findsOneWidget);
+      expect(find.text('Complete'), findsOneWidget);
+      expect(find.text('Kickoff has passed.'), findsNothing);
+
+      await tester.tap(find.text('Attendance'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Take attendance'), findsOneWidget);
+      expect(find.text('2 of 2 present'), findsOneWidget);
+
+      await tester.tap(find.widgetWithText(CheckboxListTile, 'Dawit Hailu'));
+      await tester.pumpAndSettle();
+      expect(find.text('1 of 2 present'), findsOneWidget);
+
+      await tester.tap(find.text('Save attendance'));
+      await tester.pumpAndSettle();
+
+      expect(service.marked.single, ['organizer-1']);
+      expect(
+        find.text('Attendance saved — 1 present, 1 no-show.'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('completion waits for the roll call', (tester) async {
+      final service = await pumpDetail(
+        tester,
+        buildDetail(
+          currentUserId: 'organizer-1',
+          startsAt: DateTime.now().subtract(const Duration(hours: 1)),
+        ),
+      );
+
+      await tester.tap(find.text('Complete'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Take attendance'), findsOneWidget);
+      expect(service.completed, isEmpty);
+
+      await tester.tap(find.text('Save attendance'));
+      await tester.pumpAndSettle();
+      expect(service.marked.single.length, 2);
+
+      await tester.tap(find.text('Complete'));
+      await tester.pumpAndSettle();
+      expect(find.text('Complete this match?'), findsOneWidget);
+
+      await tester.tap(find.text('Complete match'));
+      await tester.pumpAndSettle();
+
+      expect(service.completed, ['m1']);
+      expect(find.text('Match completed.'), findsOneWidget);
+    });
+
+    testWidgets('players get no attendance controls after kickoff', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        buildDetail(
+          startsAt: DateTime.now().subtract(const Duration(hours: 1)),
+          myStatus: 'confirmed',
+        ),
+      );
+
+      expect(find.text('Kickoff has passed.'), findsOneWidget);
+      expect(find.text('Attendance'), findsNothing);
+      expect(find.text('Complete'), findsNothing);
+    });
+
+    testWidgets('a completed match summarises the roll call', (tester) async {
+      await pumpDetail(
+        tester,
+        buildDetail(
+          currentUserId: 'organizer-1',
+          status: 'completed',
+          marked: true,
+          absent: {'p2'},
+        ),
+      );
+
+      expect(find.text('Played · 1 present, 1 no-show'), findsOneWidget);
+      expect(find.text('Attendance'), findsNothing);
     });
   });
 }

@@ -91,9 +91,18 @@ class _JoinMatchSheetState extends ConsumerState<JoinMatchSheet> {
             ),
             _DetailRow(
               icon: Icons.sports_soccer,
-              text:
-                  '${match.formatLabel} · organized by ${match.organizerName}',
+              text: match.isOrgMatch
+                  ? '${match.formatLabel} · ${match.clubLabel}'
+                  : '${match.formatLabel} · organized by ${match.organizerName}',
             ),
+            if (match.isOrgMatch)
+              _DetailRow(
+                icon: Icons.groups_outlined,
+                text: match.isInternal
+                    ? 'Club game: only ${match.organizationName ?? 'club'} '
+                          'members play.'
+                    : 'Club challenge: your squad fills your club side.',
+              ),
             _DetailRow(icon: Icons.payments_outlined, text: priceLabel),
             if (_error != null) ...[
               const SizedBox(height: 8),

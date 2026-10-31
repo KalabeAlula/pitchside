@@ -7,10 +7,12 @@ import 'package:intl/intl.dart';
 import '../core/constants/addis_sub_cities.dart';
 import '../core/format/money.dart';
 import '../core/time/addis_time.dart';
+import '../models/organization.dart';
 import '../models/pitch.dart';
 import '../models/pitch_slot.dart';
 import '../providers/create_match_provider.dart';
 import '../providers/fields_provider.dart';
+import '../providers/organizations_provider.dart';
 
 class CreateMatchScreen extends ConsumerStatefulWidget {
   const CreateMatchScreen({
@@ -18,6 +20,7 @@ class CreateMatchScreen extends ConsumerStatefulWidget {
     this.initialPitch,
     this.initialStartsAt,
     this.initialDurationMinutes,
+    this.organization,
   });
 
   /// Set when the organizer starts from a venue page.
@@ -26,6 +29,9 @@ class CreateMatchScreen extends ConsumerStatefulWidget {
   /// Set when the organizer picked a block on the venue's day grid.
   final DateTime? initialStartsAt;
   final int? initialDurationMinutes;
+
+  /// Set when a club manager hosts on behalf of their company or team.
+  final Organization? organization;
 
   @override
   ConsumerState<CreateMatchScreen> createState() => _CreateMatchScreenState();
@@ -45,6 +51,10 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
   int _durationMinutes = 60;
   bool _submitting = false;
   String? _error;
+
+  /// Club mode: a game inside the club, or a challenge against another club.
+  bool _challenge = false;
+  String? _opponentId;
 
   /// True when the organizer arrived from a block on the venue's day grid.
   bool get _fromSlot =>
@@ -159,6 +169,8 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
             durationMinutes: _durationMinutes,
             pricePerPlayer: double.parse(_priceController.text.trim()),
             notes: notes.isEmpty ? null : notes,
+            organizationId: widget.organization?.id,
+            opponentOrganizationId: _challenge ? _opponentId : null,
           );
       if (mounted) Navigator.of(context).pop(true);
     } catch (error) {
@@ -171,12 +183,81 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
     }
   }
 
+  /// Clubs to challenge. Listing every club keeps the picker discoverable; the
+  /// host's own club is not an option.
+  Widget _buildOpponentPicker() {
+    final theme = Theme.of(context);
+    final host = widget.organization!;
+    final directory = ref.watch(organizationsDirectoryProvider);
+
+    return directory.when(
+      loading: () => const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: LinearProgressIndicator(),
+      ),
+      error: (_, _) => Row(
+        children: [
+          const Expanded(child: Text('Could not load the club list.')),
+          TextButton(
+            onPressed: () => ref.invalidate(organizationsDirectoryProvider),
+            child: const Text('Try again'),
+          ),
+        ],
+      ),
+      data: (organizations) {
+        final opponents = organizations
+            .where((organization) => organization.id != host.id)
+            .toList();
+        if (opponents.isEmpty) {
+          return Text(
+            'No other club is on Pitchside yet. Host a game within your club '
+            'for now.',
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          );
+        }
+        return DropdownButtonFormField<String>(
+          initialValue: opponents.any((club) => club.id == _opponentId)
+              ? _opponentId
+              : null,
+          isExpanded: true,
+          validator: (_) => _challenge && _opponentId == null
+              ? 'Choose the opponent club.'
+              : null,
+          decoration: const InputDecoration(
+            labelText: 'Opponent club',
+            border: OutlineInputBorder(),
+            helperText: 'Their managers accept the invite, then their players can join.',
+            helperMaxLines: 2,
+          ),
+          items: opponents
+              .map(
+                (organization) => DropdownMenuItem(
+                  value: organization.id,
+                  child: Text(
+                    organization.name,
+                    overflow: TextOverflow.ellipsis,
+                  ),
+                ),
+              )
+              .toList(),
+          onChanged: (value) => setState(() => _opponentId = value),
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final pitches = ref.watch(pitchesProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Create a match')),
+      appBar: AppBar(
+        title: Text(
+          widget.organization == null ? 'Create a match' : 'Host a club match',
+        ),
+      ),
       body: SafeArea(
         child: pitches.when(
           loading: () => const Center(child: CircularProgressIndicator()),
@@ -224,6 +305,35 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                if (widget.organization != null) ...[
+                  _ClubBanner(organization: widget.organization!),
+                  const SizedBox(height: 16),
+                  SegmentedButton<bool>(
+                    showSelectedIcon: false,
+                    segments: const [
+                      ButtonSegment(
+                        value: false,
+                        label: Text('Within club'),
+                        icon: Icon(Icons.groups_2_outlined),
+                      ),
+                      ButtonSegment(
+                        value: true,
+                        label: Text('Vs another club'),
+                        icon: Icon(Icons.shield_outlined),
+                      ),
+                    ],
+                    selected: {_challenge},
+                    onSelectionChanged: (selection) => setState(() {
+                      _challenge = selection.first;
+                      _opponentId = null;
+                    }),
+                  ),
+                  if (_challenge) ...[
+                    const SizedBox(height: 12),
+                    _buildOpponentPicker(),
+                  ],
+                  const SizedBox(height: 20),
+                ],
                 if (_fromSlot && _slot != null)
                   _BookingSummary(
                     pitch: _pitch!,
@@ -343,9 +453,12 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                   initialValue: durations.contains(_durationMinutes)
                       ? _durationMinutes
                       : durations.last,
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Duration',
-                    border: OutlineInputBorder(),
+                    helperText: _fromSlot
+                        ? 'Matches field block length ($eatLabel)'
+                        : null,
+                    border: const OutlineInputBorder(),
                   ),
                   items: durations
                       .map(
@@ -355,9 +468,11 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                         ),
                       )
                       .toList(),
-                  onChanged: (value) => setState(
-                    () => _durationMinutes = value ?? durations.last,
-                  ),
+                  onChanged: _fromSlot
+                      ? null
+                      : (value) => setState(
+                          () => _durationMinutes = value ?? durations.last,
+                        ),
                 ),
                 const SizedBox(height: 20),
                 TextFormField(
@@ -369,7 +484,9 @@ class _CreateMatchScreenState extends ConsumerState<CreateMatchScreen> {
                   onChanged: (_) => setState(() {}),
                   decoration: InputDecoration(
                     labelText: 'Price per player (ETB)',
-                    hintText: '0 for a free game',
+                    hintText: widget.organization == null
+                        ? '0 for a free game'
+                        : '0 if the club covers the field',
                     helperText: _priceHint,
                     border: const OutlineInputBorder(),
                   ),
@@ -528,7 +645,7 @@ class _BookingSummary extends StatelessWidget {
       subCityNameFor(pitch.subCityId),
       if (pitch.woreda?.isNotEmpty ?? false) pitch.woreda!,
     ].join(' · ');
-    final time = DateFormat.jm();
+    final timeFormat = DateFormat('HH:mm');
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -579,7 +696,8 @@ class _BookingSummary extends StatelessWidget {
                 ),
                 _Fact(
                   icon: Icons.schedule_outlined,
-                  label: '${time.format(startsAt)} – ${time.format(endsAt)}',
+                  label:
+                      '${timeFormat.format(startsAt)} – ${timeFormat.format(endsAt)} $eatLabel',
                 ),
               ],
             ),
@@ -588,7 +706,7 @@ class _BookingSummary extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(left: 26),
             child: Text(
-              '${pitch.blockHours}-hour block at the field in $eatLabel · '
+              '${pitch.blockHours}-hour block at the field in $eatLabel (UTC+3) · '
               '${etb(pitch.blockPrice)} ETB',
               style: theme.textTheme.bodySmall?.copyWith(
                 color: scheme.onSurfaceVariant,
@@ -617,6 +735,66 @@ class _Fact extends StatelessWidget {
         const SizedBox(width: 5),
         Text(label, style: theme.textTheme.bodySmall),
       ],
+    );
+  }
+}
+
+/// Names the club the game belongs to, so the manager never has to guess
+/// whether they are creating a public pickup or a club match.
+class _ClubBanner extends StatelessWidget {
+  const _ClubBanner({required this.organization});
+
+  final Organization organization;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: scheme.primaryContainer.withValues(alpha: 0.45),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        children: [
+          CircleAvatar(
+            radius: 18,
+            backgroundColor: scheme.primary,
+            child: Text(
+              organization.initials,
+              style: TextStyle(
+                color: scheme.onPrimary,
+                fontWeight: FontWeight.w800,
+                fontSize: 12,
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Hosting for',
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  organization.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -12,12 +12,16 @@ class MatchPlayer {
   final String status;
   final DateTime joinedAt;
 
+  /// Organizer's roll call: null until marked, then true (present) / false.
+  final bool? attended;
+
   const MatchPlayer({
     required this.userId,
     required this.fullName,
     required this.team,
     required this.status,
     required this.joinedAt,
+    this.attended,
   });
 
   bool get isConfirmed => status == 'confirmed';
@@ -44,6 +48,7 @@ class MatchPlayer {
       team: json['team'] as String?,
       status: json['member_status'] as String? ?? 'confirmed',
       joinedAt: DateTime.parse(json['joined_at'] as String),
+      attended: json['attended'] as bool?,
     );
   }
 }
@@ -64,6 +69,14 @@ class MatchDetail {
 
   List<MatchPlayer> get teamA => _confirmedOn('A');
   List<MatchPlayer> get teamB => _confirmedOn('B');
+
+  List<MatchPlayer> get confirmedPlayers =>
+      players.where((player) => player.isConfirmed).toList(growable: false);
+
+  /// True once the organizer has marked every confirmed player. Completion is
+  /// refused by the database until this holds.
+  bool get attendanceMarked =>
+      confirmedPlayers.every((player) => player.attended != null);
 
   /// Promotion order: first joined, first promoted.
   List<MatchPlayer> get waitlist =>

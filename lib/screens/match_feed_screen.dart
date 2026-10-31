@@ -7,23 +7,10 @@ import '../providers/match_feed_provider.dart';
 import '../providers/sub_cities_provider.dart';
 import '../widgets/join_match_sheet.dart';
 import '../widgets/match_card.dart';
-import 'create_match_screen.dart';
 import 'match_detail_screen.dart';
 
 class MatchFeedScreen extends ConsumerWidget {
   const MatchFeedScreen({super.key});
-
-  Future<void> _onCreatePressed(BuildContext context) async {
-    final messenger = ScaffoldMessenger.of(context);
-    final created = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => const CreateMatchScreen()));
-    if (created == true) {
-      messenger.showSnackBar(
-        const SnackBar(content: Text('Match created. You are on Team A.')),
-      );
-    }
-  }
 
   Future<void> _openMatch(
     BuildContext context,
@@ -147,11 +134,6 @@ class MatchFeedScreen extends ConsumerWidget {
             ),
           ),
         ],
-      ),
-      floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _onCreatePressed(context),
-        icon: const Icon(Icons.add),
-        label: const Text('Create match'),
       ),
     );
   }
