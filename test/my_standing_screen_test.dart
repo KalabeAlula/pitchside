@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchside/core/theme/app_theme.dart';
+import 'package:pitchside/models/past_match.dart';
 import 'package:pitchside/models/player_standing.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/my_standing_screen.dart';
@@ -9,12 +10,16 @@ import 'package:pitchside/screens/my_standing_screen.dart';
 import 'support/fake_pitchside_service.dart';
 
 class StandingFakeService extends FakePitchsideService {
-  StandingFakeService(this.standing);
+  StandingFakeService(this.standing, {this.pastMatches = const []});
 
   final PlayerStanding standing;
+  final List<PastMatch> pastMatches;
 
   @override
   Future<PlayerStanding> getMyStanding() async => standing;
+
+  @override
+  Future<List<PastMatch>> getMyPastMatches() async => pastMatches;
 }
 
 class FailingStandingService extends FakePitchsideService {
@@ -57,7 +62,64 @@ void main() {
     expect(find.text('Games played'), findsOneWidget);
     expect(find.text('No-shows'), findsOneWidget);
     expect(find.text('How the score works'), findsOneWidget);
+    expect(
+      find.text('Completed matches will appear here after your first game.'),
+      findsOneWidget,
+    );
     expect(find.text('Public games paused'), findsNothing);
+  });
+
+  testWidgets('lists past matches with attendance', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(420, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final service = StandingFakeService(
+      const PlayerStanding(
+        score: 100,
+        suspendedUntil: null,
+        matchesPlayed: 8,
+        noShows: 1,
+      ),
+      pastMatches: [
+        PastMatch(
+          id: 'm1',
+          pitchId: 'p1',
+          pitchName: 'Sarbet Turf House',
+          subCityName: 'Kirkos',
+          startsAt: DateTime.utc(2026, 10, 25, 16),
+          endsAt: DateTime.utc(2026, 10, 25, 17),
+          team: 'A',
+          attended: true,
+        ),
+        PastMatch(
+          id: 'm2',
+          pitchId: 'p2',
+          pitchName: 'Kazanchis Turf',
+          subCityName: 'Kirkos',
+          startsAt: DateTime.utc(2026, 10, 18, 7),
+          endsAt: DateTime.utc(2026, 10, 18, 8),
+          team: 'B',
+          attended: false,
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(buildScreen(service));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Past matches'), findsOneWidget);
+    expect(find.text('Sarbet Turf House'), findsOneWidget);
+    expect(find.text('Sun 25 Oct · 19:00–20:00 EAT'), findsOneWidget);
+    expect(find.text('Kirkos · Team A'), findsOneWidget);
+    expect(find.text('Played'), findsOneWidget);
+    expect(find.text('Kazanchis Turf'), findsOneWidget);
+    expect(find.text('Sun 18 Oct · 10:00–11:00 EAT'), findsOneWidget);
+    expect(find.text('Kirkos · Team B'), findsOneWidget);
+    expect(find.text('No-show'), findsOneWidget);
+    expect(
+      find.text('Completed matches will appear here after your first game.'),
+      findsNothing,
+    );
   });
 
   testWidgets('an active suspension shows the EAT rejoin time', (tester) async {

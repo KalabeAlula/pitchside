@@ -104,5 +104,14 @@ class MatchDetail {
   bool get isOpen =>
       match.status == 'scheduled' && match.startsAt.isAfter(DateTime.now());
 
+  /// True when giving up this spot falls inside the three-hour window the
+  /// reliability rule penalises. Waiting-list places are never penalised, and
+  /// the database counts the same window from left_at.
+  bool get isLateCancel {
+    if (!amConfirmed) return false;
+    final deadline = match.startsAt.subtract(const Duration(hours: 3));
+    return !DateTime.now().isBefore(deadline);
+  }
+
   bool get canJoin => isOpen && !amConfirmed && !amWaitlisted;
 }

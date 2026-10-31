@@ -106,6 +106,26 @@ class FakeMatchDetailService extends FakePitchsideService {
   final joined = <String>[];
   final marked = <List<String>>[];
   final completed = <String>[];
+  PitchReviewState reviewState = const PitchReviewState(canReview: false);
+  final submittedReviews = <({int rating, String? comment})>[];
+
+  @override
+  Future<PitchReviewState> getPitchReviewState(String pitchId) async =>
+      reviewState;
+
+  @override
+  Future<void> submitPitchReview({
+    required String pitchId,
+    required int rating,
+    String? comment,
+  }) async {
+    submittedReviews.add((rating: rating, comment: comment));
+    reviewState = PitchReviewState(
+      canReview: true,
+      myRating: rating,
+      myComment: comment,
+    );
+  }
 
   @override
   Future<MatchDetail> getMatchDetail(String matchId) async => detail;
@@ -207,15 +227,16 @@ class FakeMatchDetailService extends FakePitchsideService {
 
 Future<FakeMatchDetailService> pumpDetail(
   WidgetTester tester,
-  MatchDetail detail,
-) async {
+  MatchDetail detail, {
+  FakeMatchDetailService? service,
+}) async {
   await tester.binding.setSurfaceSize(const Size(420, 1200));
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
-  final service = FakeMatchDetailService(detail);
+  final fake = service ?? FakeMatchDetailService(detail);
   await tester.pumpWidget(
     ProviderScope(
-      overrides: [pitchsideServiceProvider.overrideWithValue(service)],
+      overrides: [pitchsideServiceProvider.overrideWithValue(fake)],
       child: MaterialApp(
         theme: AppTheme.light(),
         home: MatchDetailScreen(matchId: 'm1', initialMatch: detail.match),
@@ -223,7 +244,7 @@ Future<FakeMatchDetailService> pumpDetail(
     ),
   );
   await tester.pumpAndSettle();
-  return service;
+  return fake;
 }
 
 void main() {
@@ -324,6 +345,73 @@ void main() {
 
       expect(find.text('Leave waiting list'), findsOneWidget);
       expect(find.text('you'), findsOneWidget);
+    });
+
+    testWidgets('warns about the penalty before a late confirmed cancel', (
+      tester,
+    ) async {
+      final service = await pumpDetail(
+        tester,
+        buildDetail(
+          myStatus: 'confirmed',
+          startsAt: DateTime.now().add(const Duration(hours: 2)),
+        ),
+      );
+
+      await tester.tap(find.text('Leave match'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leave this late?'), findsOneWidget);
+      expect(find.textContaining('less than 3 hours away'), findsOneWidget);
+      expect(find.textContaining('25 reliability points'), findsOneWidget);
+      expect(find.text('Stay'), findsOneWidget);
+      expect(find.text('Leave anyway'), findsOneWidget);
+
+      await tester.tap(find.text('Leave anyway'));
+      await tester.pumpAndSettle();
+
+      expect(service.left, ['m1']);
+      expect(
+        find.text(
+          'You left the match. 25 points came off your reliability score.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('a cancel outside the window stays a plain confirmation', (
+      tester,
+    ) async {
+      await pumpDetail(
+        tester,
+        buildDetail(
+          myStatus: 'confirmed',
+          startsAt: DateTime.now().add(const Duration(hours: 4)),
+        ),
+      );
+
+      await tester.tap(find.text('Leave match'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leave this match?'), findsOneWidget);
+      expect(find.text('Leave'), findsOneWidget);
+      expect(find.textContaining('25 reliability points'), findsNothing);
+    });
+
+    testWidgets('a waiting-list place is never a late cancel', (tester) async {
+      await pumpDetail(
+        tester,
+        buildDetail(
+          myStatus: 'waitlisted',
+          startsAt: DateTime.now().add(const Duration(hours: 2)),
+        ),
+      );
+
+      await tester.tap(find.text('Leave waiting list'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Leave this match?'), findsOneWidget);
+      expect(find.textContaining('25 reliability points'), findsNothing);
     });
 
     testWidgets('the organizer shuffles teams', (tester) async {
@@ -463,6 +551,33 @@ void main() {
 
       expect(find.text('Played · 1 present, 1 no-show'), findsOneWidget);
       expect(find.text('Attendance'), findsNothing);
+    });
+
+    testWidgets('an attending player can rate the field after completion', (
+      tester,
+    ) async {
+      final detail = buildDetail(
+        currentUserId: 'organizer-1',
+        status: 'completed',
+        marked: true,
+      );
+      final service = FakeMatchDetailService(detail)
+        ..reviewState = const PitchReviewState(canReview: true);
+      await pumpDetail(tester, detail, service: service);
+
+      expect(find.text('Rate the field'), findsOneWidget);
+
+      await tester.tap(find.text('Rate the field'));
+      await tester.pumpAndSettle();
+      expect(find.text('How was the field?'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('5 stars'));
+      await tester.pump();
+      await tester.tap(find.text('Post review'));
+      await tester.pumpAndSettle();
+
+      expect(service.submittedReviews.single.rating, 5);
+      expect(find.text('Edit your review'), findsOneWidget);
     });
   });
 }

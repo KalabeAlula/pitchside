@@ -7,6 +7,7 @@ import '../models/pitch_slot.dart';
 import '../models/match_detail.dart';
 import '../models/match_model.dart';
 import '../models/organization.dart';
+import '../models/past_match.dart';
 import '../models/player_standing.dart';
 import '../models/sub_city.dart';
 
@@ -92,13 +93,39 @@ class PitchsideService {
   Future<List<PitchReview>> getPitchReviews(String pitchId) async {
     final response = await _client
         .from('pitch_reviews')
-        .select('id, rating, comment, created_at, profiles(full_name)')
+        .select(
+          'id, reviewer_id, rating, comment, created_at, '
+          'profiles(full_name)',
+        )
         .eq('pitch_id', pitchId)
         .order('created_at', ascending: false)
         .limit(20);
     return (response as List)
         .map((json) => PitchReview.fromJson(json as Map<String, dynamic>))
         .toList();
+  }
+
+  /// Whether the caller may review this field and what they already said.
+  /// The database decides with the same rule that guards the write.
+  Future<PitchReviewState> getPitchReviewState(String pitchId) async {
+    final response = await _client.rpc(
+      'pitch_review_state',
+      params: {'p_pitch_id': pitchId},
+    );
+    final row = (response as List).first as Map<String, dynamic>;
+    return PitchReviewState.fromJson(row);
+  }
+
+  /// Rate a field the caller played. Repeat calls edit the existing review.
+  Future<void> submitPitchReview({
+    required String pitchId,
+    required int rating,
+    String? comment,
+  }) async {
+    await _client.rpc(
+      'submit_pitch_review',
+      params: {'p_pitch_id': pitchId, 'p_rating': rating, 'p_comment': comment},
+    );
   }
 
   /// Upcoming scheduled matches, optionally narrowed to one sub-city.
@@ -219,6 +246,23 @@ class PitchsideService {
         .eq('id', userId)
         .single();
     return PlayerStanding.fromJson(Map<String, dynamic>.from(row));
+  }
+
+  /// Completed matches the caller was confirmed in, newest first. The view
+  /// already narrows to the caller, so there is no extra filter to add here.
+  Future<List<PastMatch>> getMyPastMatches() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return const [];
+    final response = await _client
+        .from('my_past_matches')
+        .select()
+        .order('starts_at', ascending: false)
+        .limit(30);
+    return (response as List)
+        .map(
+          (json) => PastMatch.fromJson(Map<String, dynamic>.from(json as Map)),
+        )
+        .toList();
   }
 
   /// Create a new match (organizer is automatically registered on Team A).

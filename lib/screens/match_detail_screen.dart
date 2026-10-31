@@ -7,10 +7,12 @@ import '../core/time/addis_time.dart';
 import '../models/match_detail.dart';
 import '../models/match_model.dart';
 import '../models/organization.dart';
+import '../providers/fields_provider.dart';
 import '../providers/match_detail_provider.dart';
 import '../providers/match_feed_provider.dart';
 import '../providers/organizations_provider.dart';
 import '../widgets/attendance_sheet.dart';
+import '../widgets/field_review_button.dart';
 import '../widgets/join_match_sheet.dart';
 
 /// Everything that matters after tapping a game: when and where it is, who is
@@ -84,19 +86,31 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     }
   }
 
-  Future<void> _leave() async {
+  Future<void> _leave(MatchDetail detail) async {
+    final late = detail.isLateCancel;
+    final kickoff = DateFormat('HH:mm')
+        .format(addisWall(detail.match.startsAt));
     final ok = await _confirm(
-      title: 'Leave this match?',
-      body: 'Your spot goes to the next player on the waiting list.',
-      confirm: 'Leave',
+      title: late ? 'Leave this late?' : 'Leave this match?',
+      body: detail.amWaitlisted
+          ? 'You give up your place in line; confirmed players are unaffected.'
+          : late
+          ? 'Kickoff is at $kickoff $eatLabel, less than 3 hours away. '
+                'Leaving a confirmed spot now costs 25 reliability points. '
+                'Your spot goes to the next player on the waiting list.'
+          : 'Your spot goes to the next player on the waiting list.',
+      confirm: late ? 'Leave anyway' : 'Leave',
       dismiss: 'Stay',
+      icon: late ? Icons.warning_amber_rounded : null,
     );
     if (ok == true) {
       await _run(
         () => ref
             .read(matchActionControllerProvider.notifier)
             .leave(widget.matchId),
-        done: 'You left the match.',
+        done: late
+            ? 'You left the match. 25 points came off your reliability score.'
+            : 'You left the match.',
       );
     }
   }
@@ -224,10 +238,14 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
     required String body,
     required String confirm,
     required String dismiss,
+    IconData? icon,
   }) {
     return showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
+        icon: icon == null
+            ? null
+            : Icon(icon, color: Theme.of(dialogContext).colorScheme.error),
         title: Text(title),
         content: Text(body),
         actions: [
@@ -401,12 +419,23 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
           .toList(growable: false);
       final present = marked.where((player) => player.attended == true).length;
       final absent = marked.length - present;
-      child = _StatusLine(
-        icon: Icons.flag_outlined,
-        text: marked.isEmpty
-            ? 'This match has been played.'
-            : 'Played · $present present, '
-                  '$absent no-show${absent == 1 ? '' : 's'}',
+      child = Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          _StatusLine(
+            icon: Icons.flag_outlined,
+            text: marked.isEmpty
+                ? 'This match has been played.'
+                : 'Played · $present present, '
+                      '$absent no-show${absent == 1 ? '' : 's'}',
+          ),
+          if (detail.me?.attended == true)
+            _PlayedReviewRow(
+              pitchId: match.pitchId,
+              pitchName: match.pitchName,
+            ),
+        ],
       );
     } else if (!detail.isOpen) {
       // After kickoff the roster is frozen: the organizer does the roll call,
@@ -510,7 +539,7 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
       );
     } else if (detail.amConfirmed || detail.amWaitlisted) {
       child = OutlinedButton.icon(
-        onPressed: _busy ? null : _leave,
+        onPressed: _busy ? null : () => _leave(detail),
         icon: const Icon(Icons.logout),
         label: Text(detail.amWaitlisted ? 'Leave waiting list' : 'Leave match'),
       );
@@ -538,6 +567,31 @@ class _MatchDetailScreenState extends ConsumerState<MatchDetailScreen> {
         ),
       ),
       child: child,
+    );
+  }
+}
+
+/// Post-match review prompt for players who were marked present. Hides itself
+/// when the server says the field is not rateable, so the completed bar stays
+/// a plain status line for everyone else.
+class _PlayedReviewRow extends ConsumerWidget {
+  const _PlayedReviewRow({required this.pitchId, required this.pitchName});
+
+  final String pitchId;
+  final String pitchName;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final state = ref.watch(pitchReviewStateProvider(pitchId)).asData?.value;
+    if (state == null || !state.canReview) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: FieldReviewButton(
+        pitchId: pitchId,
+        pitchName: pitchName,
+        state: state,
+        rateLabel: 'Rate the field',
+      ),
     );
   }
 }

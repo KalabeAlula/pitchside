@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 
 import '../core/theme/app_colors.dart';
 import '../core/time/addis_time.dart';
+import '../models/past_match.dart';
 import '../models/player_standing.dart';
 import '../providers/standing_provider.dart';
+import 'match_detail_screen.dart';
 
 /// The player's fair-play record: where the reliability score stands, whether
 /// public games are paused, and the rules that move it.
@@ -26,7 +28,10 @@ class MyStandingScreen extends ConsumerWidget {
           IconButton(
             icon: const Icon(Icons.refresh),
             tooltip: 'Refresh',
-            onPressed: () => ref.invalidate(myStandingProvider),
+            onPressed: () {
+              ref.invalidate(myStandingProvider);
+              ref.invalidate(myPastMatchesProvider);
+            },
           ),
         ],
       ),
@@ -37,7 +42,10 @@ class MyStandingScreen extends ConsumerWidget {
           onRetry: () => ref.invalidate(myStandingProvider),
         ),
         data: (value) => RefreshIndicator(
-          onRefresh: () => ref.refresh(myStandingProvider.future),
+          onRefresh: () => Future.wait([
+            ref.refresh(myStandingProvider.future),
+            ref.refresh(myPastMatchesProvider.future),
+          ]),
           child: ListView(
             physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
@@ -58,6 +66,8 @@ class MyStandingScreen extends ConsumerWidget {
               ],
               const SizedBox(height: 12),
               _StatsCard(standing: value),
+              const SizedBox(height: 12),
+              const _PastMatches(),
               const SizedBox(height: 12),
               const _RulesCard(),
             ],
@@ -356,6 +366,198 @@ class _StatTile extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _PastMatches extends ConsumerWidget {
+  const _PastMatches();
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final matches = ref.watch(myPastMatchesProvider);
+
+    return Card(
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Icon(Icons.history, color: scheme.primary),
+                const SizedBox(width: 8),
+                Text(
+                  'Past matches',
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            matches.when(
+              loading: () => const Padding(
+                padding: EdgeInsets.symmetric(vertical: 18),
+                child: Center(
+                  child: SizedBox(
+                    width: 22,
+                    height: 22,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+              error: (error, _) => Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Could not load your past matches.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => ref.invalidate(myPastMatchesProvider),
+                    child: const Text('Try again'),
+                  ),
+                ],
+              ),
+              data: (list) {
+                if (list.isEmpty) {
+                  return Padding(
+                    padding: const EdgeInsets.only(top: 4, bottom: 8),
+                    child: Text(
+                      'Completed matches will appear here after your first '
+                      'game.',
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: scheme.onSurfaceVariant,
+                      ),
+                    ),
+                  );
+                }
+                return Column(
+                  children: [
+                    for (var i = 0; i < list.length; i++) ...[
+                      if (i > 0)
+                        Divider(height: 1, color: scheme.outlineVariant),
+                      _PastMatchTile(match: list[i]),
+                    ],
+                  ],
+                );
+              },
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PastMatchTile extends StatelessWidget {
+  const _PastMatchTile({required this.match});
+
+  final PastMatch match;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final wall = addisWall(match.startsAt);
+    final day = DateFormat('EEE d MMM').format(wall);
+    final start = DateFormat('HH:mm').format(wall);
+    final end = DateFormat('HH:mm').format(addisWall(match.endsAt));
+    final color = match.attended ? scheme.primary : scheme.error;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => MatchDetailScreen(matchId: match.id)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.12),
+                shape: BoxShape.circle,
+              ),
+              child: Icon(
+                match.attended ? Icons.check : Icons.remove,
+                color: color,
+                size: 20,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    match.pitchName,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    '$day · $start–$end $eatLabel',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                  Text(
+                    match.team == null
+                        ? match.subCityName
+                        : '${match.subCityName} · Team ${match.team}',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            _AttendanceChip(attended: match.attended),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _AttendanceChip extends StatelessWidget {
+  const _AttendanceChip({required this.attended});
+
+  final bool attended;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final color = attended
+        ? theme.colorScheme.primary
+        : theme.colorScheme.error;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Text(
+        attended ? 'Played' : 'No-show',
+        style: theme.textTheme.labelMedium?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
     );
   }
 }

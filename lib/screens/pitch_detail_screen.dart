@@ -12,6 +12,7 @@ import '../models/pitch_review.dart';
 import '../models/pitch_slot.dart';
 import '../providers/fields_provider.dart';
 import '../widgets/field_image.dart';
+import '../widgets/field_review_button.dart';
 import '../widgets/rating_stars.dart';
 import 'create_match_screen.dart';
 import 'pin_picker_screen.dart';
@@ -849,8 +850,12 @@ class _Reviews extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
     final reviews = ref.watch(pitchReviewsProvider(pitch.id));
+    final reviewState = ref
+        .watch(pitchReviewStateProvider(pitch.id))
+        .asData
+        ?.value;
 
-    return reviews.when(
+    final body = reviews.when(
       loading: () => const Padding(
         padding: EdgeInsets.symmetric(vertical: 12),
         child: SizedBox(
@@ -880,6 +885,21 @@ class _Reviews extends ConsumerWidget {
           children: [for (final review in items) _ReviewTile(review: review)],
         );
       },
+    );
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        if (reviewState != null && reviewState.canReview) ...[
+          FieldReviewButton(
+            pitchId: pitch.id,
+            pitchName: pitch.name,
+            state: reviewState,
+          ),
+          const SizedBox(height: 12),
+        ],
+        body,
+      ],
     );
   }
 }

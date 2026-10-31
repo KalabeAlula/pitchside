@@ -50,6 +50,13 @@ final pitchReviewsProvider = FutureProvider.family<List<PitchReview>, String>((
   return ref.watch(pitchsideServiceProvider).getPitchReviews(pitchId);
 });
 
+/// Whether the signed-in player may review the field, and the review they
+/// already left. Auto-dispose so finishing a match is picked up next visit.
+final pitchReviewStateProvider = FutureProvider.autoDispose
+    .family<PitchReviewState, String>((ref, pitchId) {
+      return ref.watch(pitchsideServiceProvider).getPitchReviewState(pitchId);
+    });
+
 typedef SlotQuery = ({String pitchId, DateTime day});
 
 /// Keyed by the calendar day at midnight so the same day always hits one cache.

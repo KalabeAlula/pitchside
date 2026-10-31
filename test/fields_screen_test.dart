@@ -88,9 +88,29 @@ class FakeFieldsService extends FakePitchsideService {
   final requestedQueries = <String>[];
   String? role = 'player';
   ({String pitchId, double latitude, double longitude})? savedPin;
+  PitchReviewState reviewState = const PitchReviewState(canReview: false);
+  final submittedReviews = <({String pitchId, int rating, String? comment})>[];
 
   @override
   Future<String?> getMyRole() async => role;
+
+  @override
+  Future<PitchReviewState> getPitchReviewState(String pitchId) async =>
+      reviewState;
+
+  @override
+  Future<void> submitPitchReview({
+    required String pitchId,
+    required int rating,
+    String? comment,
+  }) async {
+    submittedReviews.add((pitchId: pitchId, rating: rating, comment: comment));
+    reviewState = PitchReviewState(
+      canReview: true,
+      myRating: rating,
+      myComment: comment,
+    );
+  }
 
   @override
   Future<Pitch> setPitchPin({
@@ -241,15 +261,16 @@ Future<FakeFieldsService> pumpDetail(
   WidgetTester tester,
   Pitch pitch, {
   String? role = 'player',
+  FakeFieldsService? service,
 }) async {
   await tester.binding.setSurfaceSize(const Size(420, 1400));
   addTearDown(() => tester.binding.setSurfaceSize(null));
 
-  final service = FakeFieldsService()..role = role;
+  final fake = service ?? (FakeFieldsService()..role = role);
   await tester.pumpWidget(
     ProviderScope(
       overrides: [
-        pitchsideServiceProvider.overrideWithValue(service),
+        pitchsideServiceProvider.overrideWithValue(fake),
         pinTileProviderProvider.overrideWithValue(FakeTileProvider()),
       ],
       child: MaterialApp(
@@ -259,7 +280,7 @@ Future<FakeFieldsService> pumpDetail(
     ),
   );
   await tester.pumpAndSettle();
-  return service;
+  return fake;
 }
 
 void main() {
@@ -436,6 +457,8 @@ void main() {
       expect(find.text('Get directions'), findsOneWidget);
       expect(find.text('Set exact pin'), findsNothing);
       expect(find.text('Move exact pin'), findsNothing);
+      expect(find.text('Rate this field'), findsNothing);
+      expect(find.text('Edit your review'), findsNothing);
       expect(
         find.textContaining('9.0099, 38.7720 · Approximate pin'),
         findsOneWidget,
@@ -444,6 +467,60 @@ void main() {
         find.textContaining('it marks the area, not the exact gate'),
         findsOneWidget,
       );
+    });
+
+    testWidgets('a player who played the field rates it', (tester) async {
+      final service = FakeFieldsService()
+        ..reviewState = const PitchReviewState(canReview: true);
+      await pumpDetail(tester, _approxPin, service: service);
+
+      await tester.tap(find.text('Rate this field'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('How was the field?'), findsOneWidget);
+      expect(find.text('Tap a star to rate'), findsOneWidget);
+
+      final post = find.widgetWithText(FilledButton, 'Post review');
+      expect(tester.widget<FilledButton>(post).onPressed, isNull);
+
+      await tester.tap(find.byTooltip('4 stars'));
+      await tester.pump();
+      expect(find.text('Good'), findsOneWidget);
+
+      await tester.enterText(
+        find.byType(TextField),
+        'Good turf, the gate is on the left.',
+      );
+      await tester.tap(post);
+      await tester.pumpAndSettle();
+
+      final review = service.submittedReviews.single;
+      expect(review.pitchId, 'p4');
+      expect(review.rating, 4);
+      expect(review.comment, 'Good turf, the gate is on the left.');
+      expect(
+        find.text('Review saved. Thanks for helping other players.'),
+        findsOneWidget,
+      );
+      expect(find.text('Edit your review'), findsOneWidget);
+    });
+
+    testWidgets('an existing review opens prefilled', (tester) async {
+      final service = FakeFieldsService()
+        ..reviewState = const PitchReviewState(
+          canReview: true,
+          myRating: 5,
+          myComment: 'Great turf',
+        );
+      await pumpDetail(tester, _approxPin, service: service);
+
+      await tester.tap(find.text('Edit your review'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Update your review'), findsOneWidget);
+      expect(find.text('Excellent'), findsOneWidget);
+      expect(find.widgetWithText(TextField, 'Great turf'), findsOneWidget);
+      expect(find.text('Save review'), findsOneWidget);
     });
 
     testWidgets('only an operator sees the pin action', (tester) async {

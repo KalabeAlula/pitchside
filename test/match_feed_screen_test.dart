@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchside/core/theme/app_theme.dart';
 import 'package:pitchside/models/match_detail.dart';
 import 'package:pitchside/models/match_model.dart';
+import 'package:pitchside/models/past_match.dart';
 import 'package:pitchside/models/pitch.dart';
 import 'package:pitchside/models/pitch_review.dart';
 import 'package:pitchside/models/pitch_slot.dart';
@@ -65,6 +66,9 @@ class FeedFakeService extends FakePitchsideService {
 
   @override
   Future<PlayerStanding> getMyStanding() async => standing;
+
+  @override
+  Future<List<PastMatch>> getMyPastMatches() async => const [];
 
   @override
   Future<List<SubCity>> getSubCities() async => subCities;
