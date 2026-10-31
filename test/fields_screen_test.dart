@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:pitchside/core/theme/app_theme.dart';
@@ -10,6 +11,7 @@ import 'package:pitchside/models/pitch_slot.dart';
 import 'package:pitchside/models/sub_city.dart';
 import 'package:pitchside/providers/service_provider.dart';
 import 'package:pitchside/screens/fields_screen.dart';
+import 'package:pitchside/screens/pin_picker_screen.dart';
 import 'package:pitchside/screens/pitch_detail_screen.dart';
 
 import 'support/fake_pitchside_service.dart';
@@ -27,6 +29,7 @@ const _atlas = Pitch(
   reviewCount: 10,
   latitude: 8.999,
   longitude: 38.786,
+  pinAccuracy: 'exact',
   surface: 'artificial_grass',
   pricePerHour: 1100,
   hasFloodlights: true,
@@ -41,6 +44,7 @@ const _kazanchis = Pitch(
   woreda: 'Woreda 08',
   latitude: 9.0145,
   longitude: 38.764,
+  pinAccuracy: 'exact',
   surface: 'artificial_grass',
   pricePerHour: 950,
   hasFloodlights: true,
@@ -58,8 +62,63 @@ const _noPin = Pitch(
   isActive: true,
 );
 
+const _approxPin = Pitch(
+  id: 'p4',
+  name: 'Bambis Football Meda',
+  subCityId: 'kirkos',
+  address: 'Kirkos, Woreda 01',
+  woreda: 'Woreda 01',
+  latitude: 9.00987,
+  longitude: 38.77199,
+  pinAccuracy: 'approximate',
+  surface: 'artificial_grass',
+  pricePerHour: 500,
+  isActive: true,
+);
+
+/// Serves a transparent tile from memory so the pin map renders without the
+/// network in widget tests.
+class FakeTileProvider extends TileProvider {
+  @override
+  ImageProvider getImage(TileCoordinates coordinates, TileLayer options) =>
+      MemoryImage(TileProvider.transparentImage);
+}
+
 class FakeFieldsService extends FakePitchsideService {
   final requestedQueries = <String>[];
+  String? role = 'player';
+  ({String pitchId, double latitude, double longitude})? savedPin;
+
+  @override
+  Future<String?> getMyRole() async => role;
+
+  @override
+  Future<Pitch> setPitchPin({
+    required String pitchId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    savedPin = (pitchId: pitchId, latitude: latitude, longitude: longitude);
+    final source = [
+      _atlas,
+      _kazanchis,
+      _noPin,
+      _approxPin,
+    ].firstWhere((pitch) => pitch.id == pitchId, orElse: () => _approxPin);
+    return Pitch.fromJson({
+      'id': source.id,
+      'name': source.name,
+      'sub_city_id': source.subCityId,
+      'address': source.address,
+      'woreda': source.woreda,
+      'latitude': latitude,
+      'longitude': longitude,
+      'pin_accuracy': 'exact',
+      'surface': source.surface,
+      'price_per_hour': source.pricePerHour,
+      'is_active': true,
+    });
+  }
 
   @override
   Future<List<Pitch>> getPitchCards({
@@ -172,6 +231,31 @@ Future<FakeFieldsService> pumpFields(WidgetTester tester) async {
     ProviderScope(
       overrides: [pitchsideServiceProvider.overrideWithValue(service)],
       child: MaterialApp(theme: AppTheme.light(), home: const FieldsScreen()),
+    ),
+  );
+  await tester.pumpAndSettle();
+  return service;
+}
+
+Future<FakeFieldsService> pumpDetail(
+  WidgetTester tester,
+  Pitch pitch, {
+  String? role = 'player',
+}) async {
+  await tester.binding.setSurfaceSize(const Size(420, 1400));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+
+  final service = FakeFieldsService()..role = role;
+  await tester.pumpWidget(
+    ProviderScope(
+      overrides: [
+        pitchsideServiceProvider.overrideWithValue(service),
+        pinTileProviderProvider.overrideWithValue(FakeTileProvider()),
+      ],
+      child: MaterialApp(
+        theme: AppTheme.light(),
+        home: PitchDetailScreen(pitch: pitch),
+      ),
     ),
   );
   await tester.pumpAndSettle();
@@ -328,23 +412,13 @@ void main() {
       expect(find.text('08:00 – 10:00'), findsOneWidget);
       expect(find.text('Booked'), findsOneWidget);
       expect(find.text('Get directions'), findsOneWidget);
+      expect(find.textContaining('Approximate pin'), findsNothing);
     });
 
     testWidgets('a field without a published pin still offers directions', (
       tester,
     ) async {
-      await tester.pumpWidget(
-        ProviderScope(
-          overrides: [
-            pitchsideServiceProvider.overrideWithValue(FakeFieldsService()),
-          ],
-          child: MaterialApp(
-            theme: AppTheme.light(),
-            home: const PitchDetailScreen(pitch: _noPin),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+      await pumpDetail(tester, _noPin);
 
       expect(find.text('Get directions'), findsOneWidget);
       expect(find.textContaining('Exact pin not published'), findsOneWidget);
@@ -354,6 +428,57 @@ void main() {
         ),
         findsOneWidget,
       );
+    });
+
+    testWidgets('an area pin is labelled approximate', (tester) async {
+      await pumpDetail(tester, _approxPin);
+
+      expect(find.text('Get directions'), findsOneWidget);
+      expect(find.text('Set exact pin'), findsNothing);
+      expect(find.text('Move exact pin'), findsNothing);
+      expect(
+        find.textContaining('9.0099, 38.7720 · Approximate pin'),
+        findsOneWidget,
+      );
+      expect(
+        find.textContaining('it marks the area, not the exact gate'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('only an operator sees the pin action', (tester) async {
+      await pumpDetail(tester, _noPin, role: 'admin');
+      expect(find.text('Set exact pin'), findsOneWidget);
+
+      await pumpDetail(tester, _atlas, role: 'admin');
+      expect(find.text('Move exact pin'), findsOneWidget);
+      expect(find.text('Set exact pin'), findsNothing);
+    });
+
+    testWidgets('an operator drops the exact pin from the map', (tester) async {
+      final service = await pumpDetail(tester, _approxPin, role: 'admin');
+
+      await tester.tap(find.text('Set exact pin'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Exact pin'), findsOneWidget);
+      expect(find.text('Save exact pin'), findsOneWidget);
+
+      await tester.tap(find.byType(FlutterMap));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Save exact pin'));
+      await tester.pumpAndSettle();
+
+      final saved = service.savedPin;
+      expect(saved, isNotNull);
+      expect(saved!.pitchId, 'p4');
+      expect(saved.latitude, closeTo(9.00987, 0.01));
+      expect(saved.longitude, closeTo(38.77199, 0.01));
+      expect(find.text('Exact pin saved for this field.'), findsOneWidget);
+      expect(find.text('Move exact pin'), findsOneWidget);
+      expect(find.textContaining('Approximate pin'), findsNothing);
     });
 
     testWidgets('a booked block cannot be selected', (tester) async {

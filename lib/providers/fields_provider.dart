@@ -36,6 +36,13 @@ final fieldsProvider = FutureProvider<List<Pitch>>((ref) {
       .getPitchCards(subCityId: subCityId, query: search);
 });
 
+/// Whether the signed-in account may drop exact pins. Auto-dispose so a role
+/// change is picked up on the next visit instead of living for the session.
+final isFieldOperatorProvider = FutureProvider.autoDispose<bool>((ref) async {
+  final role = await ref.watch(pitchsideServiceProvider).getMyRole();
+  return role == 'admin';
+});
+
 final pitchReviewsProvider = FutureProvider.family<List<PitchReview>, String>((
   ref,
   pitchId,

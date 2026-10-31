@@ -1,4 +1,8 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Release builds need this for Supabase calls and the OpenStreetMap
+         tiles used by the exact-pin picker. Debug builds get it from the
+         Flutter tool's debug manifest. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
     <application
         android:label="Pitchside"
         android:name="${applicationName}"

@@ -371,4 +371,31 @@ class PitchsideService {
   Future<void> shuffleTeams(String matchId) async {
     await _client.rpc('shuffle_teams', params: {'p_match_id': matchId});
   }
+
+  /// The signed-in account's role, or null when signed out. Operators are the
+  /// accounts allowed to drop exact field pins.
+  Future<String?> getMyRole() async {
+    final userId = _client.auth.currentUser?.id;
+    if (userId == null) return null;
+    final row = await _client
+        .from('profiles')
+        .select('role')
+        .eq('id', userId)
+        .maybeSingle();
+    return row?['role'] as String?;
+  }
+
+  /// Operator-only. Stores an exact gate pin and marks the field as pinned by
+  /// hand; the database re-checks the role and the Addis bounds.
+  Future<Pitch> setPitchPin({
+    required String pitchId,
+    required double latitude,
+    required double longitude,
+  }) async {
+    final response = await _client.rpc(
+      'set_pitch_pin',
+      params: {'p_pitch_id': pitchId, 'p_lat': latitude, 'p_lng': longitude},
+    );
+    return Pitch.fromJson(Map<String, dynamic>.from(response as Map));
+  }
 }

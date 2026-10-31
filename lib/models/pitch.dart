@@ -14,6 +14,10 @@ class Pitch {
   final int directoryReviewCount;
   final double? latitude;
   final double? longitude;
+
+  /// 'exact' when an operator pinned the gate, 'approximate' when the pin is
+  /// only an area-level geocode. Null on rows that predate the column.
+  final String? pinAccuracy;
   final String surface;
   final double pricePerHour;
   final int blockHours;
@@ -38,6 +42,7 @@ class Pitch {
     this.directoryReviewCount = 0,
     this.latitude,
     this.longitude,
+    this.pinAccuracy,
     required this.surface,
     required this.pricePerHour,
     this.blockHours = 2,
@@ -65,6 +70,7 @@ class Pitch {
           (json['directory_review_count'] as num?)?.toInt() ?? 0,
       latitude: (json['latitude'] as num?)?.toDouble(),
       longitude: (json['longitude'] as num?)?.toDouble(),
+      pinAccuracy: json['pin_accuracy'] as String?,
       surface: json['surface'] as String,
       pricePerHour: (json['price_per_hour'] as num).toDouble(),
       blockHours: (json['booking_block_hours'] as num?)?.toInt() ?? 2,
@@ -77,6 +83,12 @@ class Pitch {
 
   /// Pitchside's own player reviews.
   bool get hasPlayerReviews => ratingAvg != null && reviewCount > 0;
+
+  bool get hasPin => latitude != null && longitude != null;
+
+  /// Legacy pins (demo venues) carry no accuracy value; only an explicit
+  /// 'exact' is treated as a gate pin.
+  bool get hasExactPin => hasPin && pinAccuracy == 'exact';
 
   /// What the card shows: our players' rating once there is one, otherwise the
   /// aggregate the city directory publishes.

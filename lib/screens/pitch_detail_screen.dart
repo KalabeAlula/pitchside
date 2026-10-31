@@ -14,6 +14,7 @@ import '../providers/fields_provider.dart';
 import '../widgets/field_image.dart';
 import '../widgets/rating_stars.dart';
 import 'create_match_screen.dart';
+import 'pin_picker_screen.dart';
 
 /// Venue page: photo, the day's slots, the facts that decide a booking,
 /// house rules, and the reviews left by players who have already played here.
@@ -30,7 +31,11 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
   late DateTime _day;
   PitchSlot? _slot;
 
-  Pitch get _pitch => widget.pitch;
+  /// Set once an operator saves a pin here, so the page reflects the new
+  /// coordinates without leaving the screen.
+  Pitch? _savedPitch;
+
+  Pitch get _pitch => _savedPitch ?? widget.pitch;
 
   @override
   void initState() {
@@ -67,6 +72,19 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
     }
   }
 
+  Future<void> _editPin() async {
+    final updated = await Navigator.of(context).push<Pitch>(
+      MaterialPageRoute(builder: (_) => PinPickerScreen(pitch: _pitch)),
+    );
+    if (!mounted || updated == null) return;
+    setState(() => _savedPitch = updated);
+    // The directory and map views read their own copies of the pin.
+    ref.invalidate(fieldsProvider);
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('Exact pin saved for this field.')),
+    );
+  }
+
   Future<void> _openDirections() async {
     final uri = googleMapsDirectionsUri(
       name: _pitch.name,
@@ -89,6 +107,8 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final isOperator =
+        ref.watch(isFieldOperatorProvider).asData?.value ?? false;
 
     return Scaffold(
       body: CustomScrollView(
@@ -269,11 +289,12 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
                                         subCityNameFor(_pitch.subCityId),
                                         if (_pitch.woreda != null)
                                           _pitch.woreda!,
-                                        if (_pitch.latitude != null &&
-                                            _pitch.longitude != null)
+                                        if (_pitch.hasPin) ...[
                                           '${_pitch.latitude!.toStringAsFixed(4)}, '
-                                              '${_pitch.longitude!.toStringAsFixed(4)}'
-                                        else
+                                              '${_pitch.longitude!.toStringAsFixed(4)}',
+                                          if (!_pitch.hasExactPin)
+                                            'Approximate pin',
+                                        ] else
                                           'Exact pin not published',
                                       ].join(' · '),
                                       style: theme.textTheme.bodySmall
@@ -297,14 +318,39 @@ class _PitchDetailScreenState extends ConsumerState<PitchDetailScreen> {
                               label: const Text('Get directions'),
                             ),
                           ),
-                          if (_pitch.latitude == null ||
-                              _pitch.longitude == null) ...[
+                          if (!_pitch.hasPin) ...[
                             const SizedBox(height: 8),
                             Text(
                               'No exact pin yet — Maps searches by the name '
                               'and address above.',
                               style: theme.textTheme.bodySmall?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ] else if (!_pitch.hasExactPin) ...[
+                            const SizedBox(height: 8),
+                            Text(
+                              'Approximate pin — it marks the area, not the '
+                              'exact gate. Confirm with the operator.',
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                          if (isOperator) ...[
+                            const SizedBox(height: 12),
+                            SizedBox(
+                              width: double.infinity,
+                              child: OutlinedButton.icon(
+                                onPressed: _editPin,
+                                icon: const Icon(
+                                  Icons.add_location_alt_outlined,
+                                ),
+                                label: Text(
+                                  _pitch.hasExactPin
+                                      ? 'Move exact pin'
+                                      : 'Set exact pin',
+                                ),
                               ),
                             ),
                           ],
